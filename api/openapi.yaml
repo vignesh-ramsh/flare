@@ -1,0 +1,371 @@
+openapi: 3.1.0
+info:
+  title: Flare API
+  version: "1"
+  summary: Publish messages to topics over HTTP; subscribe from anywhere.
+  description: |
+    Flare is a publish/subscribe notification server. A publisher sends a message
+    to a **topic**; everyone subscribed to that topic receives it.
+
+    ```
+    curl -d "Backup finished" -H "Title: Backups" https://flare.example.com/backups
+    curl -s https://flare.example.com/backups/json
+    ```
+
+    ## Delivery
+
+    A message is stored before the publisher gets its answer, and kept for the
+    server's cache duration (`limits.cache_duration` in `/v1/config`). Messages
+    carry an `id` that sorts by time. A subscriber that disconnects remembers the
+    `id` of the last message it received and reconnects with `since=<id>`: it then
+    gets everything it missed, and every message arrives once per connection, in
+    order. A subscriber that can't keep up is disconnected and should do the same.
+
+    ## Errors
+
+    Every error response has the same JSON body: a `code` (the HTTP status
+    followed by two digits), the `http` status and a human-readable `error`.
+
+    ## Status
+
+    This server has no accounts yet. Access is one server-wide policy,
+    `auth.default_access` in `/v1/config`. Attachments, delayed delivery, action
+    buttons and push notifications are not supported yet; a request that uses
+    them is refused with code 40003 instead of having them silently ignored.
+  license:
+    name: Apache-2.0
+    identifier: Apache-2.0
+servers:
+  - url: http://localhost:8080
+# No operation needs authentication yet: access is one server-wide policy.
+security: []
+tags:
+  - name: Publish
+    description: Send a message to a topic.
+  - name: Subscribe
+    description: Receive messages, live or from the cache.
+  - name: Server
+    description: Information about the server itself.
+
+paths:
+  /:
+    get:
+      tags: [Server]
+      summary: A hint for people who open the server in a browser
+      operationId: index
+      responses:
+        "200":
+          description: Plain text with example commands.
+          content:
+            text/plain: { schema: { type: string } }
+
+  /healthz:
+    get:
+      tags: [Server]
+      summary: The process is running
+      operationId: healthz
+      responses:
+        "200":
+          description: Always `ok`.
+          content:
+            text/plain: { schema: { type: string, examples: [ok] } }
+
+  /readyz:
+    get:
+      tags: [Server]
+      summary: The server can store messages
+      description: Load balancers use this to decide whether to send traffic.
+      operationId: readyz
+      responses:
+        "200":
+          description: Ready.
+          content:
+            text/plain: { schema: { type: string, examples: [ok] } }
+        "503":
+          $ref: "#/components/responses/Error"
+
+  /v1/config:
+    get:
+      tags: [Server]
+      summary: What an app needs to know to show and use this server
+      operationId: getServerConfig
+      responses:
+        "200":
+          description: The server's name, look, limits and features.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ServerConfig" }
+
+  /v1/messages:
+    post:
+      tags: [Publish]
+      summary: Publish a message, with everything in a JSON body
+      operationId: publishJSON
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PublishRequest" }
+      responses:
+        "200":
+          $ref: "#/components/responses/Published"
+        default:
+          $ref: "#/components/responses/Error"
+
+  /{topic}:
+    parameters:
+      - $ref: "#/components/parameters/Topic"
+      - $ref: "#/components/parameters/TitleHeader"
+      - $ref: "#/components/parameters/PriorityHeader"
+      - $ref: "#/components/parameters/TagsHeader"
+      - $ref: "#/components/parameters/ClickHeader"
+    post:
+      tags: [Publish]
+      summary: Publish a message; the request body is the message
+      description: |
+        The body is the message text. Title, priority, tags and click URL are taken
+        from headers, or from query parameters of the same name in lower case for
+        tools that can't set headers. Header values may use RFC 2047 encoding
+        (`=?UTF-8?B?...?=`) for non-ASCII text.
+
+        A request with neither a title nor a body becomes the message `triggered`.
+      operationId: publish
+      requestBody:
+        content:
+          text/plain: { schema: { type: string } }
+      responses:
+        "200":
+          $ref: "#/components/responses/Published"
+        default:
+          $ref: "#/components/responses/Error"
+    put:
+      tags: [Publish]
+      summary: Publish a message (same as POST)
+      operationId: publishPut
+      requestBody:
+        content:
+          text/plain: { schema: { type: string } }
+      responses:
+        "200":
+          $ref: "#/components/responses/Published"
+        default:
+          $ref: "#/components/responses/Error"
+
+  /{topics}/json:
+    get:
+      tags: [Subscribe]
+      summary: Stream messages as newline-delimited JSON
+      description: |
+        Keeps the connection open and writes one JSON object per line: an `open`
+        event first (its `id` is a point to resume from if no message has arrived
+        yet and `since` was not given), then `message` events as they arrive, and a
+        `keepalive` event every 30 seconds while quiet. A client that sees nothing
+        for much longer than that should reconnect.
+
+        With `poll=1` it writes the cached messages and ends.
+      operationId: streamJSON
+      parameters:
+        - $ref: "#/components/parameters/Topics"
+        - $ref: "#/components/parameters/Since"
+        - name: poll
+          in: query
+          description: "`1`, `true` or `yes` to return the cached messages and end, instead of streaming. Then `since` defaults to everything in the cache."
+          schema: { type: string }
+      responses:
+        "200":
+          description: A stream of events, one JSON object per line.
+          content:
+            application/x-ndjson:
+              schema: { $ref: "#/components/schemas/Message" }
+        default:
+          $ref: "#/components/responses/Error"
+
+  /{topics}/sse:
+    get:
+      tags: [Subscribe]
+      summary: Stream messages as Server-Sent Events
+      description: |
+        The same events as `/json`, in the Server-Sent Events format, for browsers'
+        `EventSource`. Each `message` event has an `id:` line, so a browser that
+        reconnects resumes from the last one by itself (`Last-Event-ID`).
+      operationId: streamSSE
+      parameters:
+        - $ref: "#/components/parameters/Topics"
+        - $ref: "#/components/parameters/Since"
+        - name: Last-Event-ID
+          in: header
+          description: Sent by browsers when reconnecting. Used when `since` is not given.
+          schema: { type: string }
+      responses:
+        "200":
+          description: An event stream.
+          content:
+            text/event-stream:
+              schema: { type: string }
+        default:
+          $ref: "#/components/responses/Error"
+
+  /v1/ws:
+    get:
+      tags: [Subscribe]
+      summary: One WebSocket for any number of topics, to subscribe and publish
+      description: |
+        Upgrades to a WebSocket. All frames are JSON text. Browsers may only
+        connect from the server's own origin.
+
+        **Client to server**
+
+        | Frame | Meaning |
+        |---|---|
+        | `{"op":"subscribe","topic":"t","since":"..."}` | Follow a topic. `since` is optional, with the same values as the query parameter; without it only new messages arrive. |
+        | `{"op":"unsubscribe","topic":"t"}` | Stop following a topic. |
+        | `{"op":"publish","topic":"t","message":"...","title":"...","priority":4,"tags":["a"],"click":"https://..."}` | Publish a message. Only `topic` is required. |
+
+        **Server to client**
+
+        | Frame | Meaning |
+        |---|---|
+        | `{"event":"subscribed","topic":"t"}` | The subscription is live; nothing published from now on is missed. |
+        | `{"event":"unsubscribed","topic":"t"}` | Answer to `unsubscribe`. |
+        | `{"event":"published","topic":"t","id":"..."}` | The message was stored. |
+        | `{"event":"message", ...}` | A message, in the shape of the `Message` schema. |
+        | `{"event":"error","code":40301,"error":"...","topic":"t"}` | Something was refused. The connection stays open. Code 50002 means a subscription was dropped because the client fell behind: subscribe again with `since` set to the last message received. |
+
+        On server shutdown the connection is closed with status 1001 (going away).
+      operationId: websocket
+      responses:
+        "101":
+          description: Switching protocols.
+        default:
+          $ref: "#/components/responses/Error"
+
+components:
+  parameters:
+    Topic:
+      name: topic
+      in: path
+      required: true
+      description: "1-64 letters, digits, `-` or `_`. `v1`, `healthz`, `readyz` and `metrics` are reserved. On a server that allows open access, the name is the only protection a topic has, so pick one that is hard to guess."
+      schema: { type: string, pattern: "^[A-Za-z0-9_-]{1,64}$" }
+    Topics:
+      name: topics
+      in: path
+      required: true
+      description: One or more topic names, separated by commas.
+      schema: { type: string, examples: ["alerts,backups"] }
+    Since:
+      name: since
+      in: query
+      description: |
+        Where to start. One of: `all` (everything cached); a message ID (everything
+        after that message, even if it has expired); a duration with a unit, such as
+        `10m` or `2h`; or a unix timestamp in seconds. A bare small number is refused
+        as ambiguous. Without it, a stream carries only new messages.
+      schema: { type: string }
+    TitleHeader:
+      name: Title
+      in: header
+      description: A title, on one line, of up to 250 characters. Also accepted as the query parameter `title`.
+      schema: { type: string }
+    PriorityHeader:
+      name: Priority
+      in: header
+      description: "1-5, or `min`, `low`, `default`, `high`, `max`/`urgent`. Default 3. Also accepted as the query parameter `priority`."
+      schema: { type: string }
+    TagsHeader:
+      name: Tags
+      in: header
+      description: Up to 20 comma-separated tags. Also accepted as the query parameter `tags`.
+      schema: { type: string }
+    ClickHeader:
+      name: Click
+      in: header
+      description: A URL to open when the notification is tapped. Not `javascript:`, `data:`, `file:`, `vbscript:` or `blob:`. Also accepted as the query parameter `click`.
+      schema: { type: string }
+
+  responses:
+    Published:
+      description: The message was stored and delivered to everyone subscribed.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Message" }
+    Error:
+      description: The request was refused or failed.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  schemas:
+    Message:
+      type: object
+      description: A message, or a stream event (`open`, `keepalive`) with only `event`, `time`, `topic` and, for `open`, `id`.
+      required: [event, topic, time]
+      properties:
+        id:
+          type: string
+          description: A UUIDv7. IDs sort by creation time, as plain strings.
+          examples: ["01933c3e-7a4f-7cc1-9b2e-5f1d6a8e4c21"]
+        time: { type: integer, description: Unix time in seconds. }
+        expires: { type: integer, description: Unix time in seconds after which the message is no longer cached. }
+        event: { type: string, enum: [open, keepalive, message] }
+        topic: { type: string, description: "The topic; for `open` and `keepalive`, the comma-separated topics of the stream." }
+        title: { type: string }
+        message: { type: string, description: The text. Omitted when empty. }
+        priority: { type: integer, minimum: 1, maximum: 5 }
+        tags: { type: array, items: { type: string } }
+        click: { type: string }
+
+    PublishRequest:
+      type: object
+      required: [topic]
+      additionalProperties: false
+      properties:
+        topic: { type: string, pattern: "^[A-Za-z0-9_-]{1,64}$" }
+        message: { type: string }
+        title: { type: string }
+        priority: { type: integer, minimum: 1, maximum: 5 }
+        tags: { type: array, items: { type: string }, maxItems: 20 }
+        click: { type: string }
+
+    Error:
+      type: object
+      required: [code, http, error]
+      properties:
+        code:
+          type: integer
+          description: |
+            The HTTP status followed by two digits. 40001 invalid topic; 40002 invalid
+            parameter; 40003 not supported (yet); 40004 unreadable body; 40101 no
+            authentication available; 40301 forbidden; 41301 message too large;
+            50001 internal error; 50301 not ready.
+        http: { type: integer }
+        error: { type: string }
+
+    ServerConfig:
+      type: object
+      required: [api_version, name, primary_color, app_url_scheme, features, limits, auth]
+      properties:
+        api_version: { type: integer, examples: [1] }
+        name: { type: string, description: What this server calls itself. }
+        primary_color: { type: string, examples: ["#F97316"] }
+        app_url_scheme: { type: string, description: The URL scheme of the app that opens this server's subscribe links. }
+        base_url: { type: string, description: "The server's public address, if configured." }
+        features:
+          type: array
+          items: { type: string }
+          description: What this server can do. Check for a feature instead of comparing version numbers.
+          examples: [[publish, poll, sse, websocket]]
+        limits:
+          type: object
+          required: [message_size, cache_duration]
+          properties:
+            message_size: { type: integer, description: "The largest message, in bytes." }
+            cache_duration: { type: integer, description: "How long messages are kept, in seconds." }
+        auth:
+          type: object
+          required: [default_access]
+          properties:
+            default_access:
+              type: string
+              enum: [read-write, read-only, write-only, deny-all]
+              description: What anyone may do on this server.

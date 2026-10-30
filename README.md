@@ -8,7 +8,9 @@ Windows, Linux and the web.
 curl -d "Backup finished" https://flare.example.com/backups
 ```
 
-- **Self-host it:** one binary, SQLite by default, Docker Compose in a few minutes.
+- **Self-host it:** one static binary, SQLite by default, Docker Compose in a few minutes. See
+  [server/README.md](server/README.md). It is early: there are no accounts yet, so don't expose it
+  unprotected.
 - **Rebrand it:** set your own app name, logo, colours and identifiers in one brand folder and rebuild
   the apps. No source changes needed. See [brand/README.md](brand/README.md).
 

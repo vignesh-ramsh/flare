@@ -410,12 +410,21 @@ server handlers and generated client code.
 | `POST` | `/v1/wake` | Relay mode only: a server asks the relay to wake a handle |
 | `GET` | `/healthz`, `/readyz`, `/metrics` | Health checks and Prometheus metrics |
 
+**Implemented so far:** publishing (`/{topic}`, `/v1/messages`), the three ways to subscribe, `/v1/config`,
+`/healthz` and `/readyz`. The rest arrive with the features they belong to; the authoritative list of what
+the server serves today is [`api/openapi.yaml`](../api/openapi.yaml), and a test fails if it and the code
+disagree.
+
 ### Publish headers
 
 `Title`, `Priority` (`1-5` or `min|low|default|high|urgent`), `Tags`, `Click`, `Icon`, `Actions`,
 `Attach` (URL) / `Filename` (with a `PUT` upload), `Delay` (`30m`, `tomorrow 9am`, unix time),
 `Markdown`, `Cache: no`. Each header also works as a query parameter (`?title=…`) for tools that cannot
 set headers.
+
+Today `Title`, `Priority`, `Tags` and `Click` are supported. The others are **refused with error 40003**
+until they are implemented, not silently ignored: dropping `Delay` would send at once a message the
+publisher wanted held back.
 
 ### WebSocket protocol (`/v1/ws`)
 
@@ -427,10 +436,17 @@ set headers.
 { "op": "publish",     "topic": "chat", "message": "on my way" }
 
 // server → client
-{ "event": "subscribed", "topic": "backups" }
+{ "event": "subscribed",   "topic": "backups" }                 // live: nothing from now on is missed
+{ "event": "unsubscribed", "topic": "backups" }
+{ "event": "published",    "topic": "chat", "id": "…" }         // the message was stored
 { "event": "message", "topic": "backups", "id": "…", "title": "…", "message": "…" }
-{ "event": "error", "code": 40301, "error": "forbidden: no read access to topic" }
+{ "event": "error", "code": 40301, "error": "forbidden: no read access to topic", "topic": "backups" }
 ```
+
+Errors don't close the connection. Error `50002` means a subscription was dropped because the client fell
+behind; the client subscribes again with `since` set to the last message it received. On server shutdown
+the connection is closed with status 1001 (going away). Until accounts exist, an `auth` frame is answered
+with an error.
 
 Native clients may send the token in the `Authorization` header instead. Tokens never go in URLs,
 because URLs end up in proxy and access logs.
@@ -557,13 +573,13 @@ flowchart TB
 
 | Concern | Choice | Why |
 |---|---|---|
-| Language | **Go** (latest stable) | Cheap goroutine per connection, excellent HTTP stdlib, single static binary that cross-compiles to every OS; ntfy proves Go fits this exact workload |
-| HTTP routing | `net/http` (method + path patterns) + `go-chi/chi` middleware | Stdlib first; chi only for middleware composition |
+| Language | **Go** 1.25 or newer (CI tests the minimum and the latest) | Cheap goroutine per connection, excellent HTTP stdlib, single static binary that cross-compiles to every OS; ntfy proves Go fits this exact workload |
+| HTTP routing | `net/http` (method + path patterns) and a few small middleware of our own | The standard library is enough, so `chi` would only add a dependency |
 | WebSocket | `github.com/coder/websocket` | Maintained, context-aware, supports compression |
 | SSE / JSON stream | stdlib (`http.ResponseController` flushing) | No dependency needed |
 | Embedded DB | SQLite via `modernc.org/sqlite` (pure Go) | No CGO, so cross-compiling stays trivial; WAL mode |
 | Server DB | PostgreSQL via `jackc/pgx/v5` | Cluster mode |
-| Queries / migrations | `sqlc` + `pressly/goose` | Type-safe SQL for both dialects, no ORM |
+| Queries / migrations | `pressly/goose` migrations; plain `database/sql` for now, `sqlc` once there are two dialects | A handful of queries don't need code generation yet; no ORM |
 | Broker / queue | in-process channels → **NATS + JetStream** (`nats-io/nats.go`) | One dependency covers cross-node fan-out and the durable push queue |
 | APNs | `sideshow/apns2` (or a thin HTTP/2 + JWT client) | Token-based `.p8` auth; one key per configured app |
 | FCM | `firebase.google.com/go/v4/messaging` | HTTP v1 API; one service account per configured app |
@@ -571,7 +587,8 @@ flowchart TB
 | Attachments | local FS → S3-compatible via `minio-go` | Works with S3, R2, MinIO, Backblaze |
 | Auth crypto | `golang.org/x/crypto/argon2`, `crypto/rand`, `crypto/sha256` | |
 | Rate limiting | `golang.org/x/time/rate`; Valkey optional for global limits | |
-| Config | `knadh/koanf` (YAML file + env vars + flags) | |
+| Config | `gopkg.in/yaml.v3` with strict decoding, then `FLARE_*` environment variables, then flags | Unknown keys are errors, so a typo is never silently ignored |
+| Message IDs | Our own UUIDv7 generator | Strictly increasing even within a millisecond, and takes its clock as input, so the "everything after this ID" cursor is exact and testable |
 | CLI | `spf13/cobra` | `flare serve / publish / subscribe / user / token / backup / relay / worker` |
 | Observability | `log/slog` (JSON), `prometheus/client_golang`, OpenTelemetry | |
 | Testing | stdlib `testing`, `testcontainers-go` (PostgreSQL, NATS), **k6** for load tests | Load-test connection counts and publish → delivery latency |
@@ -620,15 +637,21 @@ flare/
 ├── brand/                    # default (official) brand: brand.yaml, icon.png, symbol.png
 │   └── examples/acme/        # test brand, built in CI to prove rebranding works
 ├── server/                   # Go module: one binary, several modes
-│   ├── cmd/flare/            # serve | publish | subscribe | user | token | backup | relay | worker
+│   ├── cmd/flare/            # serve | publish | subscribe   (later: user | token | backup | relay | worker)
 │   ├── internal/api/         # HTTP handlers, middleware
 │   ├── internal/realtime/    # hub, WebSocket, SSE, JSON stream
-│   ├── internal/broker/      # inproc, nats
-│   ├── internal/store/       # sqlite, postgres (sqlc)
-│   ├── internal/push/        # apns, fcm, webpush, unifiedpush, relay client + relay server
-│   ├── internal/auth/        # users, tokens, ACL
-│   ├── internal/ratelimit/
-│   ├── internal/attach/      # fs, s3
+│   ├── internal/broker/      # inproc   (later: nats)
+│   ├── internal/store/       # sqlite   (later: postgres)
+│   ├── internal/message/     # the message model and publishing rules
+│   ├── internal/id/          # UUIDv7 message IDs
+│   ├── internal/config/      # settings: file, environment, validation
+│   ├── internal/client/      # publish and follow, with reconnect and resume
+│   ├── internal/server/      # wiring, background purge, graceful shutdown
+│   ├── internal/apierr/      # error codes shared by HTTP and WebSocket
+│   ├── internal/auth/        # a server-wide access policy   (later: users, tokens, ACL)
+│   ├── internal/push/        # (later) apns, fcm, webpush, unifiedpush, relay client + relay server
+│   ├── internal/ratelimit/   # (later)
+│   ├── internal/attach/      # (later) fs, s3
 │   └── migrations/
 ├── app/                      # Flutter app
 │   ├── lib/
@@ -644,6 +667,9 @@ flare/
 ├── docs/
 └── .github/                  # CI, reusable build-apps workflow, issue/PR templates, CODEOWNERS
 ```
+
+The rows for components that are not built yet (NATS, PostgreSQL, the push providers, attachments, rate
+limiting) describe the target. [`server/README.md`](../server/README.md) says what exists today.
 
 ### Example server configuration
 
@@ -893,40 +919,21 @@ make brand BRAND_DIR=../acme-brand RELEASE=1      # before a release: refuses pl
 
 ### 13.1 Quick start (Docker Compose)
 
-```yaml
-# docker-compose.yml
-services:
-  flare:
-    image: ghcr.io/vignesh-ramsh/flare:1
-    command: serve --config /etc/flare/server.yml
-    volumes:
-      - ./server.yml:/etc/flare/server.yml:ro
-      - flare-data:/var/lib/flare
-    restart: unless-stopped
-  caddy:
-    image: caddy:2
-    ports: ["80:80", "443:443"]
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy-data:/data
-    restart: unless-stopped
-volumes:
-  flare-data:
-  caddy-data:
-```
-
-```
-# Caddyfile: Caddy gets the TLS certificate and proxies WebSockets and streams without extra settings
-flare.example.com {
-    reverse_proxy flare:8080
-}
-```
+[`deploy/`](../deploy/) has a Compose file, a Caddyfile and a sample `server.yml`. Put your domain in the
+Caddyfile and in `server.yml` (`base-url`), point its DNS at the machine, and:
 
 ```bash
-docker compose up -d
-docker compose exec flare flare user add --role=admin alice
-docker compose exec flare flare token add alice --label "home-server"
+docker compose -f deploy/docker-compose.yml up -d
 ```
+
+Caddy gets and renews the HTTPS certificate by itself. Its configuration turns response buffering off,
+which streams and WebSockets need. Until released images are published, the Compose file builds the image
+from the source. The image is a static binary on a distroless base, runs as an unprivileged user, and keeps
+its data in the `/var/lib/flare` volume.
+
+Accounts and tokens are not implemented yet (§7), so the commands that will manage them (`flare user add`,
+`flare token add`) come later. Until then the only access control is the server-wide
+`auth.default-access`; read the warning in `deploy/server.yml` before exposing a server.
 
 ### 13.2 Other ways to install
 
@@ -1074,9 +1081,9 @@ rights). This pairs naturally with white-labelling:
   projects to it comes with the Flutter app).
 
 **Phase 1 — MVP**
-- Server, single node: publish, WebSocket/SSE/JSON/poll subscribe, SQLite cache with catch-up, tokens
-  and ACL, rate limits, Docker image and the Compose self-hosting guide.
-- CLI: `flare publish`, `flare subscribe`.
+- Server, single node: publish, WebSocket/SSE/JSON/poll subscribe, SQLite cache with catch-up, Docker image
+  and the Compose self-hosting guide (**done**). Still to do: tokens and ACL, rate limits.
+- CLI: `flare publish`, `flare subscribe` (**done**).
 - Android app (FCM + instant-delivery mode) and desktop apps (tray + native notifications).
 
 **Phase 2 — Full platform coverage**

@@ -1,3 +1,9 @@
+# Go build output and local databases
+/server/bin/
+*.db
+*.db-wal
+*.db-shm
+
 # Dart and Flutter tooling
 .dart_tool/
 /app/build/

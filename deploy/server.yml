@@ -1,0 +1,45 @@
+# Flare server configuration.
+#
+# Every setting is optional: what you leave out keeps the value shown here. A
+# misspelled setting, or one the server doesn't support yet, is an error rather
+# than being ignored. Each setting can also be given as an environment variable
+# (FLARE_BASE_URL, FLARE_LISTEN, FLARE_DATABASE, FLARE_CACHE_DURATION,
+# FLARE_MESSAGE_SIZE_LIMIT, FLARE_AUTH_DEFAULT_ACCESS, FLARE_BRANDING_NAME,
+# FLARE_BRANDING_PRIMARY_COLOR, FLARE_BRANDING_APP_URL_SCHEME), which win over
+# this file, and command-line flags win over both.
+
+# The public address of the server, as users reach it.
+base-url: https://flare.example.com
+
+# Where to listen. Behind a reverse proxy on the same machine, "127.0.0.1:8080"
+# keeps the server off the network. In Docker, leave it as ":8080".
+listen: ":8080"
+
+# Where messages are kept: a SQLite file.
+database: sqlite:///var/lib/flare/flare.db
+
+# How long messages are kept for devices that were offline to catch up.
+cache-duration: 24h
+
+# The largest message, in bytes. Push services limit what they can carry, so
+# keep it small.
+message-size-limit: 4096
+
+auth:
+  # What anyone who can reach the server may do: read-write, read-only,
+  # write-only or deny-all.
+  #
+  # IMPORTANT: accounts and access tokens are not supported yet, so there is no
+  # way to give just some people access. With read-write, anyone who can reach
+  # the server can publish to and read every topic, and a topic's name is the
+  # only thing that protects it. Keep the server on a private network, or behind
+  # a proxy that restricts access, until accounts arrive.
+  default-access: read-write
+
+# How the server presents itself to apps (shown at /v1/config).
+branding:
+  name: Flare
+  primary-color: "#F97316"
+  # The URL scheme of the app your users install, for "open in app" links. It
+  # must match the url_scheme in that app's brand.yaml.
+  app-url-scheme: flare

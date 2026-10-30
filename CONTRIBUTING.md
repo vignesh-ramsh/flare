@@ -20,12 +20,22 @@ as welcome as code.
 
 ## Development setup
 
-The server (Go) and the apps (Flutter) don't exist yet. This section will list the exact setup steps
-once their skeletons land. The planned toolchain is the latest stable Go, the stable Flutter channel and
-`make` (see [docs/ARCHITECTURE.md §11](docs/ARCHITECTURE.md#11-recommended-tech-stack)).
+The Flutter apps don't exist yet. The toolchain is Go 1.25 or newer for the server, the stable Flutter
+channel for the apps, and `make` (see
+[docs/ARCHITECTURE.md §11](docs/ARCHITECTURE.md#11-recommended-tech-stack)).
 
-**Branding tool** (`app/tool/brand`, written in Dart, needs Dart 3.9 or newer; it comes with Flutter).
-It is the one part that exists today:
+**Server** (`server/`, written in Go):
+
+```bash
+make server-test    # gofmt check, go vet, and all tests with the race detector
+make server         # build server/bin/flare
+make api-lint       # validate api/openapi.yaml (needs Node.js)
+```
+
+Change `api/openapi.yaml` together with the routes; a test fails if they disagree. Run `go mod tidy`
+after changing dependencies. See [server/README.md](server/README.md).
+
+**Branding tool** (`app/tool/brand`, written in Dart, needs Dart 3.9 or newer; it comes with Flutter):
 
 ```bash
 make brand-test     # analyze and test it

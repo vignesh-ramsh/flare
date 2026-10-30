@@ -1,0 +1,8 @@
+# Replace with your domain. Caddy gets a certificate for it automatically.
+flare.example.com {
+	reverse_proxy flare:8080 {
+		# Send each message to subscribers the moment it arrives, instead of
+		# collecting output first. Streams and WebSockets depend on it.
+		flush_interval -1
+	}
+}

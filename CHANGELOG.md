@@ -16,5 +16,11 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and a generator (`app/tool/brand`, run with `make brand`) that validates a brand folder and produces
   the app's name, identifiers and icons for Android, iOS, macOS, Windows and Linux. Release mode
   (`make brand RELEASE=1`) refuses placeholder identifiers and a missing privacy policy.
+- The Flare server and command-line client (`server/`): publishing over HTTP; subscribing by streaming
+  JSON, Server-Sent Events and WebSocket; catching up on missed messages without gaps or repeats; SQLite
+  storage; graceful shutdown; `flare serve`, `flare publish` and `flare subscribe`. The HTTP contract is in
+  `api/openapi.yaml`. Accounts, rate limits and push notifications are not implemented yet.
+- A container image, Docker Compose file, Caddyfile and sample configuration (`deploy/`), and CI for the
+  server on the minimum and the latest Go.
 - CI for the brand tool, tested on the oldest supported Dart (3.9) and the current stable one, and a
   check that app code never hard-codes the project name.

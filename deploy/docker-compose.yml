@@ -1,0 +1,33 @@
+# Flare behind Caddy, which gets and renews the HTTPS certificate by itself.
+#
+#   1. Put your domain in deploy/Caddyfile and in deploy/server.yml (base-url).
+#   2. docker compose -f deploy/docker-compose.yml up -d
+#
+# Point your domain's DNS at this machine and open ports 80 and 443 first.
+services:
+  flare:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    command: ["serve", "--config", "/etc/flare/server.yml"]
+    volumes:
+      - ./server.yml:/etc/flare/server.yml:ro
+      - flare-data:/var/lib/flare
+    restart: unless-stopped
+    # Not published: only Caddy, on the same private network, reaches it.
+
+  caddy:
+    image: caddy:2
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+    depends_on:
+      - flare
+    restart: unless-stopped
+
+volumes:
+  flare-data:
+  caddy-data:

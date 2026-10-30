@@ -7,8 +7,11 @@ APP_DIR ?= app
 # Set RELEASE=1 to refuse placeholder identifiers and URLs and a missing privacy policy.
 RELEASE ?=
 
+# Version stamped into the server binary: the nearest git tag, or the commit.
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+
 .DEFAULT_GOAL := help
-.PHONY: help brand brand-test brand-check
+.PHONY: help brand brand-test brand-check server server-test api-lint
 
 help: ## Show this list
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z_-]+:.*## / {printf "  %-13s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -22,3 +25,13 @@ brand-test: ## Analyze and test the brand tool
 
 brand-check: ## Fail if app code or translations contain the project name
 	sh app/tool/check_brand_neutral.sh
+
+server: ## Build the Flare server and CLI into server/bin/flare
+	cd server && CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=$(VERSION)" -o bin/flare ./cmd/flare
+
+server-test: ## Check formatting, vet and run the server's tests with the race detector
+	@cd server && test -z "$$(gofmt -l .)" || { echo "These files need gofmt:"; gofmt -l .; exit 1; }
+	cd server && go vet ./... && go test -race ./...
+
+api-lint: ## Validate api/openapi.yaml (needs Node.js)
+	npx --yes @redocly/cli@2 lint api/openapi.yaml

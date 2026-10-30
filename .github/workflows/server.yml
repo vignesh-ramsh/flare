@@ -1,0 +1,82 @@
+name: Server
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "server/**"
+      - "api/**"
+      - "deploy/**"
+      - "Makefile"
+      - ".github/workflows/server.yml"
+  pull_request:
+    paths:
+      - "server/**"
+      - "api/**"
+      - "deploy/**"
+      - "Makefile"
+      - ".github/workflows/server.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Go ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The oldest Go the server supports (the version in go.mod), and the
+          # newest.
+          - name: minimum
+            go-version-file: server/go.mod
+          - name: latest
+            go-version: stable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go-version }}
+          go-version-file: ${{ matrix.go-version-file }}
+          cache-dependency-path: server/go.sum
+      - name: Check formatting
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+        working-directory: server
+      - name: Check that go.mod and go.sum are tidy
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod go.sum
+        working-directory: server
+      - name: Vet
+        run: go vet ./...
+        working-directory: server
+      - name: Test
+        run: go test -race ./...
+        working-directory: server
+      - name: Build the static binary
+        run: make server
+
+  api:
+    name: OpenAPI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: make api-lint
+
+  image:
+    name: Container image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the image
+        run: docker build -f deploy/Dockerfile -t flare:ci .
+      - name: Run it and publish a message
+        run: |
+          docker run -d --name flare -p 8080:8080 flare:ci
+          for i in $(seq 1 30); do curl -sf localhost:8080/healthz && break; sleep 1; done
+          curl -sf -d "hello from CI" localhost:8080/ci | grep -q '"message":"hello from CI"'
+          curl -sf "localhost:8080/ci/json?poll=1" | grep -q "hello from CI"
+          docker stop flare
+          test "$(docker inspect flare --format '{{.State.ExitCode}}')" = 0
