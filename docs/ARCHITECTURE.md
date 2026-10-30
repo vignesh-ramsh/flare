@@ -1,9 +1,9 @@
 # Flare — Architecture & Tech Stack
 
-Flare is a pub/sub notification and messaging service. A **publisher** (a script, a server, a CI job,
-another app, or a person) sends a message to a **topic** over plain HTTP. A **central server** stores
-it for a while and forwards it to every **device subscribed** to that topic, on Linux, Windows, macOS,
-Android, iOS and the web.
+Flare is an open-source, self-hostable pub/sub notification and messaging service. A **publisher**
+(a script, a server, a CI job, another app, or a person) sends a message to a **topic** over plain
+HTTP. A **central server** stores it for a while and forwards it to every **device subscribed** to
+that topic, on Linux, Windows, macOS, Android, iOS and the web.
 
 ```bash
 curl -H "Title: Backup failed" -H "Priority: high" -H "Tags: warning,server-01" \
@@ -11,6 +11,9 @@ curl -H "Title: Backup failed" -H "Priority: high" -H "Tags: warning,server-01" 
 ```
 
 That single `curl` line should be all it takes to get a notification onto your phone and desktop.
+
+Anyone can run their own Flare server, and anyone can rebuild the apps under **their own name and
+logo** by editing one brand folder (§12). No source changes are needed.
 
 ---
 
@@ -23,7 +26,11 @@ That single `curl` line should be all it takes to get a notification onto your p
 - **Every major OS**: Android, iOS, macOS, Windows, Linux, plus a web/PWA client and a CLI.
 - **Reliable delivery**: a message accepted by the server reaches every subscriber at least once, even
   if the device was offline or asleep when it was sent.
+- **Open source**: permissive licence; everything needed to run, build and publish Flare is in the
+  repository; no telemetry; no dependency on any service run by the Flare project.
 - **Self-hostable**: one static binary, SQLite by default, no other required services.
+- **White-label apps**: app name, logo, colours, identifiers and default server come from a single
+  brand folder; rebuilding with a different folder produces a fully rebranded app.
 - **Scales out when needed**: the same binary runs as a cluster on PostgreSQL + NATS.
 - **Private by design**: access control per topic, optional end-to-end encryption, and push payloads
   that leak nothing to Apple/Google when the user asks for that.
@@ -43,10 +50,11 @@ That single `curl` line should be all it takes to get a notification onto your p
 |---|---|
 | **Topic** | A named channel (`backups`, `home-alarm`). Created on first publish unless reserved. Name rules: `[A-Za-z0-9_-]{1,64}`. |
 | **Message** | An immutable event on a topic: title, body, priority (1–5), tags, click URL, action buttons, optional attachment, expiry. |
-| **Subscription** | A device listening on a topic on a given server. Either *live* (open socket) or *push* (registered push token). |
-| **Device** | An installed client. Has an id, platform, and optionally a push token (FCM / APNs / Web Push / UnifiedPush). |
+| **Subscription** | A device listening on a topic on a given server. Either *live* (open socket) or *push* (registered for push). |
+| **Device** | An installed client. Has an id, platform, `app_id` (which build of the app it is: official or a rebrand), and optionally a push token or relay handle. |
 | **User / Token** | Optional accounts. Access tokens (`flr_…`) are used by publishers and clients. |
 | **ACL** | Per-user, per-topic-pattern permissions: `read`, `write`, `read-write`, `deny`. |
+| **Brand** | The name, logo, identifiers and defaults an app is built with (§12). |
 
 ### Message format
 
@@ -150,10 +158,10 @@ single-node and cluster implementations can be swapped by configuration.
 | **Message store** | Persists messages for the cache TTL; serves catch-up (`since=`) queries | SQLite (WAL) | PostgreSQL |
 | **Broker** | Fans a stored message out to every node/process that has subscribers for that topic | Go channels | NATS (subject per topic) |
 | **Realtime hub** | Holds live connections, maps topic → connections, writes events, sends keepalives | in-process | in-process on each node |
-| **Push dispatcher** | Sends to FCM / APNs / Web Push / UnifiedPush, retries, prunes dead tokens | in-process queue backed by a DB table | NATS JetStream work queue, separate `flare worker` processes |
+| **Push dispatcher** | Sends to FCM / APNs / Web Push / UnifiedPush or a relay, retries, prunes dead tokens | in-process queue backed by a DB table | NATS JetStream work queue, separate `flare worker` processes |
 | **Attachment store** | Stores uploaded files with size quotas and expiry | local disk | S3-compatible (S3, R2, MinIO) |
 | **Scheduler** | Releases delayed messages, purges expired messages and attachments | ticker goroutine | same, with a DB-level lease so only one node runs it |
-| **Push relay** (mode) | Lets self-hosted servers wake the official mobile apps (see §5.3) | `flare relay` | `flare relay` |
+| **Push relay** (mode) | Pushes to an app on behalf of servers that don't hold that app's push keys (§5.3) | `flare relay` | `flare relay` |
 
 ### Single-node deployment (default)
 
@@ -165,9 +173,9 @@ single-node and cluster implementations can be swapped by configuration.
                  └────────────────────────────────────────┘
 ```
 
-One VM or Docker container. This is enough for most self-hosters and for the first version of a
-hosted service: a Go process holding idle WebSockets costs tens of KB per connection, so a small VM
-can hold tens of thousands of subscribers. Validate the real number with load tests (§11).
+One VM or Docker container (setup in §13). This is enough for most self-hosters: a Go process holding
+idle WebSockets costs tens of KB per connection, so a small VM can hold tens of thousands of
+subscribers. Validate the real number with load tests (§11).
 
 ### Cluster deployment (scale-out / HA)
 
@@ -301,36 +309,56 @@ iOS does not allow long-lived background sockets, so **APNs is the only reliable
 - Map priority to `interruption-level`: 1–2 → `passive`, 3 → `active`, 4–5 → `time-sensitive`.
   `critical` (sounds even on silent) needs a special Apple entitlement; apply for it later if needed.
 
-### 5.3 The push relay (self-hosting with the official apps)
+### 5.3 Push credentials and the push relay
 
-APNs and FCM credentials belong to whoever publishes the app in the App Store / Play Store. A
-self-hosted Flare server cannot push to the official iOS app directly. Solve it with a relay run by
-the app publisher:
+APNs and FCM only accept pushes signed with credentials that belong to the app's publisher: an APNs
+key from the Apple team that owns the bundle ID, and a service account from the Firebase project the
+Android app was built with. Each rebranded build (§12) has its own identity and its own credentials, so
+the server has to know **which app** a device is running before it can push to it.
+
+- Devices register with their `app_id` (Android `applicationId` / Apple bundle ID).
+- **Direct push:** if the server holds credentials for that `app_id` (`push.apps` in its config), it
+  pushes straight to APNs/FCM.
+- **Relay push:** otherwise, if the device registered through a relay that the server allows
+  (`push.allowed-relays`), the server sends a content-free wake-up to that relay. The relay is run by
+  whoever publishes that app and holds that app's keys. It is the same `flare` binary in `relay` mode.
+- **No push:** otherwise the device only gets messages over its live socket and on catch-up.
 
 ```mermaid
 sequenceDiagram
-  participant P as Publisher
-  participant S as Self-hosted Flare
-  participant R as Flare push relay (official)
+  participant App as App (iOS extension / Android service)
+  participant R as Push relay (run by the app's publisher)
+  participant S as Self-hosted Flare server
   participant A as APNs / FCM
-  participant N as iOS extension / Android service
+  participant P as Publisher
 
+  App->>R: register push token (app_id, token)
+  R-->>App: opaque handle
+  App->>S: POST /v1/devices {app_id, relay, handle} + topics
+  S-->>App: opaque subscription ids
   P->>S: POST /alerts "Disk full"
-  S->>S: store message
-  S->>R: POST /v1/relay {topic_hash, message_id}
-  R->>A: wake-up push ("New message", mutable-content)
-  A->>N: deliver
-  N->>S: GET /alerts/json?poll=1&id=<message_id> (user's own token)
-  S-->>N: full message
-  N->>N: decrypt if needed, show notification
+  S->>R: POST /v1/wake {handle, sub, id}
+  R->>A: alert push, mutable-content, {sub, id}
+  A->>App: deliver
+  App->>S: GET /v1/messages/{id} (user's own token)
+  S-->>App: full message
+  App->>App: decrypt if needed, show notification
 ```
 
-- `topic_hash = SHA-256(server_base_url + "/" + topic)`. The device registers its push token with
-  the relay under that hash; the self-hosted server only sends the hash and the message id.
-- **Message content never reaches the relay, Apple or Google.** The relay only learns that "something
-  happened" on an opaque hash.
-- The relay is the same `flare` binary in `relay` mode, rate-limited per source IP and per hash.
-- Operators who build and sign their own app can skip the relay and configure their own APNs/FCM keys.
+- The self-hosted server never sees the raw push token. The relay never sees the server's topics or
+  message content, only an opaque handle, an opaque subscription id and a message id. The app maps the
+  subscription id back to a server and topic locally.
+- The server only contacts relays on its allow-list, so a device can't make it call arbitrary URLs.
+- The relay rate-limits per source IP and per handle; the app can revoke a handle at any time.
+
+**Which setup do I need?**
+
+| You are… | Apps | Push setup |
+|---|---|---|
+| A self-hoster using the official apps | Official Flare apps | Keep the official relay in `push.allowed-relays` (it is in the sample config) |
+| A company with its own branded app for its own server | Rebranded build | Put the app's APNs key and Firebase service account in the server's `push.apps`; no relay |
+| The publisher of a public rebranded app used with many servers | Rebranded build | Run `flare relay` with your keys and set `push_relay_url` in `brand.yaml`; server operators add your relay to `push.allowed-relays` |
+| Avoiding Google/Apple entirely | Official or rebranded FOSS build | No push provider: Android instant-delivery mode or UnifiedPush, desktop and web sockets. iOS background delivery isn't possible without APNs |
 
 ### 5.4 Desktop (macOS, Windows, Linux)
 
@@ -370,14 +398,16 @@ server handlers and generated client code.
 | `GET` | `/{topics}/sse` | Server-Sent Events stream (`topics` = comma-separated list) |
 | `GET` | `/{topics}/json` | Newline-delimited JSON stream; `?poll=1` for a one-shot fetch |
 | `GET` | `/v1/messages?topic=&since=&limit=` | Paginated history from the cache |
-| `DELETE` | `/v1/messages/{id}` | Retract a message (emits `message_deleted`) |
-| `POST` | `/v1/devices` | Register a device and its push token |
-| `PUT` | `/v1/devices/{id}/subscriptions` | Replace the device's push subscriptions |
+| `GET` / `DELETE` | `/v1/messages/{id}` | Fetch one message (used after a push wake-up) / retract it (emits `message_deleted`) |
+| `GET` | `/v1/config` | Public server info: name and logo (runtime branding), API version, feature flags, auth and push modes |
+| `POST` | `/v1/devices` | Register a device: `app_id`, platform, and a push token or relay + handle |
+| `PUT` | `/v1/devices/{id}/subscriptions` | Replace the device's push subscriptions; returns opaque subscription ids |
 | `POST` | `/v1/account`, `/v1/auth/login` | Sign-up / login (optional accounts) |
 | `GET` / `POST` / `DELETE` | `/v1/account/tokens` | Manage access tokens |
 | `PUT` / `DELETE` | `/v1/topics/{topic}` | Reserve a topic, set its ACL |
 | `GET` | `/v1/files/{id}` | Download an attachment |
-| `POST` | `/v1/relay` | Relay mode only: wake-up from a self-hosted server |
+| `POST` | `/v1/handles` | Relay mode only: an app registers its push token and gets a handle |
+| `POST` | `/v1/wake` | Relay mode only: a server asks the relay to wake a handle |
 | `GET` | `/healthz`, `/readyz`, `/metrics` | Health checks and Prometheus metrics |
 
 ### Publish headers
@@ -419,16 +449,19 @@ because URLs end up in proxy and access logs.
   Anonymous, public topics are allowed if the operator enables them; the UI must say clearly that an
   unreserved topic name is effectively a password.
 - **Rate limiting and abuse.** Token buckets per IP and per user: request rate, messages per day,
-  attachment bandwidth, open subscriptions. Limits come from a `tiers` table so hosted plans can differ.
-  Only trust `X-Forwarded-For` from configured proxies.
+  attachment bandwidth, open subscriptions. Limits come from a `tiers` table so operators can set
+  different limits per user group. Only trust `X-Forwarded-For` from configured proxies.
 - **Attachments.** Size and total quota limits, expiry, `Content-Disposition: attachment` and
   `X-Content-Type-Options: nosniff`, ideally served from a separate origin to rule out stored XSS.
   The server never fetches external `Attach:` URLs itself (no SSRF); clients do.
 - **Push privacy mode.** Per topic or per server: only send `poll_request` wake-ups to FCM/APNs, never
-  message content.
+  message content. Relay wake-ups are always content-free (§5.3).
+- **Relays.** The server only calls relays on `push.allowed-relays`, so device registrations cannot
+  point it at arbitrary URLs.
 - **End-to-end encryption (optional, per topic).**
   - The subscribing client generates a random 256-bit key and shares it via a QR code or a link like
-    `flare://subscribe/flare.example.com/alerts#key=…`. The URL fragment is never sent to any server.
+    `flare://subscribe/flare.example.com/alerts#key=…` (the scheme comes from the brand). The URL
+    fragment is never sent to any server.
   - Message fields (title, body, tags, click, actions, attachment key) are encrypted with
     **AES-256-GCM** into an envelope: `{"enc":"aes256gcm","kid":"…","nonce":"…","ct":"…"}`.
     AES-GCM is chosen because Go's stdlib, Android's `javax.crypto`, Apple's CryptoKit and Dart's
@@ -456,8 +489,8 @@ The same schema runs on SQLite and PostgreSQL. Queries are written once in SQL a
 | `acl` | `user_id` (null = everyone), `topic_pattern`, `permission` |
 | `messages` | `id` (UUIDv7, PK), `topic`, `time`, `deliver_at`, `expires_at`, `priority`, `title`, `body`, `tags`, `click`, `actions` (JSON), `attachment_id`, `encoding`, `sender_user_id`, `sender_ip`; index on `(topic, time)` |
 | `attachments` | `id`, `message_id`, `name`, `mime`, `size`, `storage_key`, `expires_at` |
-| `devices` | `id`, `secret_hash`, `user_id` (nullable), `platform`, `push_provider`, `push_token`, `app_version`, `last_seen_at` |
-| `push_subscriptions` | `device_id`, `topic`, `created_at`, PK `(device_id, topic)` |
+| `devices` | `id`, `secret_hash`, `user_id` (nullable), `app_id`, `platform`, `push_provider`, `push_token` *or* (`relay_url`, `relay_handle`), `app_version`, `last_seen_at` |
+| `push_subscriptions` | `id` (opaque, sent in wake-ups), `device_id`, `topic`, `created_at`; unique `(device_id, topic)` |
 | `push_jobs` | Single-node queue only: `id`, `device_id`, `message_id`, `attempts`, `next_attempt_at` |
 
 Live socket subscriptions are not stored; they exist only in the realtime hub's memory.
@@ -487,6 +520,7 @@ flowchart TB
   REST["REST client (dio)<br/>generated from OpenAPI"]
   LDB[("Local DB: drift / SQLite<br/>message history, cursors")]
   SEC[("Secure storage<br/>tokens, E2EE keys")]
+  BRAND["Brand constants<br/>generated brand.g.dart"]
 
   subgraph Native["Native platform layer (platform channels)"]
     ANDN["Android (Kotlin)<br/>foreground service, FCM service, notification channels"]
@@ -495,6 +529,7 @@ flowchart TB
   end
 
   UI --> STATE --> REPO
+  UI --> BRAND
   REPO --> CONN
   REPO --> REST
   REPO --> LDB
@@ -506,11 +541,13 @@ flowchart TB
 - **Thin native modules** only where the OS demands it: the Android always-on service and FCM handler
   (Kotlin), the iOS Notification Service Extension and APNs registration (Swift). They share the
   SQLite file (WAL mode) and secure storage with the Flutter side.
-- **Multi-server:** a user can subscribe to topics on flare.example.com and on their own server at the
-  same time; each server gets its own connection and credentials.
+- **Brand-neutral code:** the app name, colours, links, URL scheme and default server always come from
+  the generated `Brand` class; nothing in the source says "Flare" (§12.6).
+- **Multi-server:** a user can subscribe to topics on several servers at once; each server gets its own
+  connection and credentials, and is shown with the name and logo from its `/v1/config`.
 - **Offline-first:** the UI always reads from the local database; the network layer only writes into it.
-- **Deep links:** `flare://subscribe/<host>/<topic>` (plus universal / app links) for one-tap subscribe
-  from a QR code.
+- **Deep links:** `<scheme>://subscribe/<host>/<topic>` (plus universal / app links), where `<scheme>`
+  comes from the brand, for one-tap subscribe from a QR code.
 
 ---
 
@@ -528,17 +565,17 @@ flowchart TB
 | Server DB | PostgreSQL via `jackc/pgx/v5` | Cluster mode |
 | Queries / migrations | `sqlc` + `pressly/goose` | Type-safe SQL for both dialects, no ORM |
 | Broker / queue | in-process channels → **NATS + JetStream** (`nats-io/nats.go`) | One dependency covers cross-node fan-out and the durable push queue |
-| APNs | `sideshow/apns2` (or a thin HTTP/2 + JWT client) | Token-based `.p8` auth |
-| FCM | `firebase.google.com/go/v4/messaging` | HTTP v1 API |
+| APNs | `sideshow/apns2` (or a thin HTTP/2 + JWT client) | Token-based `.p8` auth; one key per configured app |
+| FCM | `firebase.google.com/go/v4/messaging` | HTTP v1 API; one service account per configured app |
 | Web Push | `SherClockHolmes/webpush-go` | VAPID |
 | Attachments | local FS → S3-compatible via `minio-go` | Works with S3, R2, MinIO, Backblaze |
 | Auth crypto | `golang.org/x/crypto/argon2`, `crypto/rand`, `crypto/sha256` | |
 | Rate limiting | `golang.org/x/time/rate`; Valkey optional for global limits | |
 | Config | `knadh/koanf` (YAML file + env vars + flags) | |
-| CLI | `spf13/cobra` | `flare serve / publish / subscribe / user / token / relay / worker` |
+| CLI | `spf13/cobra` | `flare serve / publish / subscribe / user / token / backup / relay / worker` |
 | Observability | `log/slog` (JSON), `prometheus/client_golang`, OpenTelemetry | |
 | Testing | stdlib `testing`, `testcontainers-go` (PostgreSQL, NATS), **k6** for load tests | Load-test connection counts and publish → delivery latency |
-| Release | **GoReleaser** | Binaries for linux/windows/darwin × amd64/arm64, `.deb`/`.rpm`, Homebrew, Scoop/winget, multi-arch Docker images |
+| Release | **GoReleaser** | Binaries for linux/windows/darwin × amd64/arm64, `.deb`/`.rpm`, Homebrew, Scoop/winget, multi-arch Docker images, SBOMs, signatures |
 | Packaging | Distroless Docker image, `docker-compose.yml`, Helm chart, systemd unit | |
 
 ### Clients
@@ -551,10 +588,12 @@ flowchart TB
 | Networking | `dio` (REST, generated from OpenAPI), `web_socket_channel` |
 | Secure storage | `flutter_secure_storage` (Keychain, Android Keystore, Windows Credential Manager, libsecret) |
 | Notifications | `flutter_local_notifications` (all five platforms) |
-| Push | `firebase_messaging` on Android (kept behind an interface so a Google-free F-Droid build can drop it); native Swift APNs registration on iOS |
+| Push | `firebase_messaging` on Android (kept behind an interface so the FOSS build can drop it, §14.5); native Swift APNs registration on iOS |
 | UnifiedPush | `unifiedpush` package |
 | Desktop shell | `tray_manager`, `window_manager`, `launch_at_startup` |
 | E2EE | `cryptography` (+ `cryptography_flutter`); CryptoKit in the iOS extension; `javax.crypto` in the Android service |
+| Branding | `tool/brand` generator (Dart: `yaml`, `image`), using `flutter_launcher_icons` and `flutter_native_splash` where they cover a platform (§12) |
+| Translations | `flutter_localizations` + ARB files, community translations on Weblate |
 | Native code | Kotlin (Android service, FCM handler), Swift (Notification Service Extension) |
 | Distribution | Play Store (AAB) + F-Droid / GitHub APK; App Store / TestFlight; notarised DMG (+ Mac App Store); MSIX + winget; Flatpak, AppImage, `.deb` |
 | Store automation | Fastlane |
@@ -562,36 +601,48 @@ flowchart TB
 ### Web app (optional, phase 2)
 
 TypeScript + React (Vite), embedded in the Go binary with `go:embed` and served by `flare serve`.
+It reads its name and logo from `/v1/config`, so operators rebrand it without rebuilding.
 Web Push through a service worker (also works for iOS home-screen web apps on iOS 16.4+).
 
 ### CI/CD and repository
 
 GitHub Actions: Go lint (`golangci-lint`) and tests, Flutter analyze and tests, builds for every
-platform on matching runners (macOS runners for iOS/macOS signing), GoReleaser on tags, Fastlane for
-the stores.
+platform on matching runners (macOS runners for iOS/macOS signing), a test build with an example brand
+(§12.6), GoReleaser on tags, Fastlane for the stores, and a reusable workflow that rebranders can call
+from their own repository (§12.5).
 
 ```
 flare/
+├── LICENSE  NOTICE  README.md  CHANGELOG.md
+├── CONTRIBUTING.md  CODE_OF_CONDUCT.md  SECURITY.md  TRADEMARKS.md  GOVERNANCE.md
+├── Makefile                  # make brand | app-<platform> | server | docs
 ├── api/openapi.yaml          # API contract (source of truth)
+├── brand/                    # default (official) brand: brand.yaml, icon.png, symbol.png
+│   └── examples/acme/        # test brand, built in CI to prove rebranding works
 ├── server/                   # Go module: one binary, several modes
-│   ├── cmd/flare/            # serve | publish | subscribe | user | token | relay | worker
+│   ├── cmd/flare/            # serve | publish | subscribe | user | token | backup | relay | worker
 │   ├── internal/api/         # HTTP handlers, middleware
 │   ├── internal/realtime/    # hub, WebSocket, SSE, JSON stream
 │   ├── internal/broker/      # inproc, nats
 │   ├── internal/store/       # sqlite, postgres (sqlc)
-│   ├── internal/push/        # apns, fcm, webpush, unifiedpush, relay client
+│   ├── internal/push/        # apns, fcm, webpush, unifiedpush, relay client + relay server
 │   ├── internal/auth/        # users, tokens, ACL
 │   ├── internal/ratelimit/
 │   ├── internal/attach/      # fs, s3
 │   └── migrations/
 ├── app/                      # Flutter app
 │   ├── lib/
+│   │   └── brand/brand.g.dart   # generated, gitignored
+│   ├── l10n/                 # ARB translation files
+│   ├── tool/brand/           # branding generator
+│   ├── tool/foss/            # swaps Firebase for a stub in FOSS builds
 │   ├── android/              # + Kotlin foreground service, FCM service
 │   ├── ios/                  # + NotificationService extension (Swift)
-│   ├── macos/  windows/  linux/
+│   └── macos/  windows/  linux/
 ├── web/                      # optional React PWA
-├── deploy/                   # Dockerfile, compose, Helm chart, systemd, Caddyfile
-└── docs/
+├── deploy/                   # docker-compose.yml, Caddyfile, server.yml sample, Helm chart, systemd
+├── docs/
+└── .github/                  # CI, reusable build-apps workflow, issue/PR templates, CODEOWNERS
 ```
 
 ### Example server configuration
@@ -612,14 +663,25 @@ attachments:
   total-quota: 5GB
   expiry: 3h
 
+# Runtime branding for the web app, PWA manifest, favicon and "open in app" links (no rebuild needed)
+branding:
+  name: Flare
+  logo: ""                                     # path to an SVG/PNG; empty = built-in logo
+  primary-color: "#F97316"
+  app-url-scheme: flare                        # must match the url_scheme of the app your users install
+
 push:
-  upstream-relay: https://push.flare.example   # placeholder: the relay you operate for the official apps
-  # Only needed if you build and sign your own apps:
-  # fcm-credentials: /etc/flare/fcm-service-account.json
-  # apns-key: /etc/flare/AuthKey_ABC123.p8
-  # apns-key-id: ABC123
-  # apns-team-id: TEAM123
-  # apns-topic: com.example.flare
+  # Direct push for apps whose keys you hold (your own rebranded build):
+  apps: []
+  #  - app-id: com.acme.alerts
+  #    fcm-credentials: /etc/flare/acme-fcm-service-account.json
+  #    apns-key: /etc/flare/AuthKey_ABC123.p8
+  #    apns-key-id: ABC123
+  #    apns-team-id: TEAM123
+  # Relays allowed to wake other apps. The official relay serves the official apps;
+  # remove it if you don't use them. (Placeholder URL until the project runs one.)
+  allowed-relays:
+    - https://push.flare.example
 
 cluster:
   # nats-url: nats://nats:4222                 # set to enable cluster mode
@@ -627,7 +689,327 @@ cluster:
 
 ---
 
-## 12. Alternatives considered
+## 12. White-label builds (custom app name and logo)
+
+Anyone can produce a fully rebranded Flare app (name, logo, colours, identifiers, default server)
+by pointing the build at a different **brand folder**. No source file is edited, so a rebrand can
+follow upstream releases with a plain `git pull` and a rebuild.
+
+### 12.1 What can be branded, and when
+
+| Part | Branded at | How |
+|---|---|---|
+| Mobile and desktop apps | **build time** | Brand folder → generator → `flutter build` (name, icons and IDs are baked into each app package) |
+| Server web app, PWA manifest, favicon | **runtime** | `branding:` in `server.yml`, served via `/v1/config` |
+| Server name shown inside apps | **runtime** | Apps show each server's name and logo from `/v1/config`, next to (never instead of) the app's own branding |
+| Server binary and CLI | not branded | Stays `flare`; it's infrastructure, not something end users see |
+
+### 12.2 The brand folder
+
+```
+brand/                       # or any folder, passed as BRAND_DIR=/path/to/acme-brand
+├── brand.yaml
+├── icon.png                 # 1024×1024 square app icon artwork
+├── symbol.png               # monochrome silhouette on transparent background, ≥ 256×256
+└── firebase/
+    └── google-services.json # from your Firebase project (omit for FOSS-only builds)
+```
+
+```yaml
+# brand.yaml: everything that makes a build "yours".
+schema: 1
+
+app:
+  name: Flare                          # launcher label, window title, notifications, About screen
+  short_name: Flare                    # ≤ 12 characters: Android launcher, PWA
+  description: Push notifications for your scripts, servers and apps.
+  url_scheme: flare                    # <scheme>://subscribe/<host>/<topic>
+  app_links_domain: ""                 # optional: Universal Links / Android App Links host
+
+ids:                                   # MUST be unique for any build you distribute (§12.4)
+  android: com.example.flare           # applicationId
+  apple: com.example.flare             # iOS + macOS bundle ID; extension = <id>.NotificationService
+  apple_team_id: ABCDE12345
+  windows: Example.Flare               # MSIX identity name
+  windows_publisher: "CN=Example"      # must match your code-signing certificate's subject
+  linux: com.example.Flare             # .desktop file, AppStream and Flatpak ID
+
+look:
+  icon: icon.png
+  symbol: symbol.png                   # source for notification, tray and menu-bar icons
+  icon_background: "#0F172A"           # adaptive-icon background; fills transparency on iOS
+  primary_color: "#F97316"             # Material 3 seed colour
+
+defaults:
+  server_url: https://flare.example.com   # pre-filled server ("" = the user enters one)
+  allow_custom_servers: true              # false = app locked to server_url (internal company builds)
+  push_relay_url: https://push.flare.example   # your relay (§5.3), or "" if your servers push directly
+
+links:                                 # shown in Settings / About and the store listings
+  website: https://example.com
+  support: https://example.com/support
+  privacy_policy: https://example.com/privacy   # required by the app stores
+  source_code: https://github.com/example/flare
+
+firebase:
+  android_config: firebase/google-services.json
+```
+
+The upstream repository's `brand/` folder holds the official Flare brand. (`com.example.*` and
+`flare.example.com` above are placeholders until the project picks its real identifiers.)
+
+### 12.3 How a branded build works
+
+```mermaid
+flowchart LR
+  subgraph Brand["Brand folder (brand/ or BRAND_DIR)"]
+    Y["brand.yaml<br/>name, IDs, colours, defaults, links"]
+    I["icon.png"]
+    S["symbol.png"]
+    F["google-services.json"]
+  end
+  T["make brand<br/>(dart run tool/brand)<br/>validate + generate"]
+  subgraph Gen["Generated files (gitignored)"]
+    D["lib/brand/brand.g.dart"]
+    A["Android: brand.properties,<br/>launcher, adaptive and notification icons"]
+    X["iOS + macOS: Brand.xcconfig,<br/>AppIcon sets, menu-bar icon"]
+    W["Windows + Linux: brand.cmake,<br/>.ico, PNGs, .desktop, Flatpak manifest"]
+    M["Store metadata<br/>Fastlane, MSIX, AppStream"]
+  end
+  B["flutter build (per platform)"]
+  Y --> T
+  I --> T
+  S --> T
+  F --> T
+  T --> D
+  T --> A
+  T --> X
+  T --> W
+  T --> M
+  D --> B
+  A --> B
+  X --> B
+  W --> B
+  M --> B
+```
+
+The native project files are committed once, already wired to read the generated files. Neither
+upstream nor a rebrand ever edits them to change the brand:
+
+| Platform | Generated (gitignored) | Wired into |
+|---|---|---|
+| All (Dart) | `lib/brand/brand.g.dart`: name, colours, links, URL scheme, default server, relay URL | UI, theme, settings, About screen |
+| Android | `android/brand.properties`; `mipmap-*` launcher and adaptive icons; `drawable-*/ic_notification.png` | `build.gradle.kts` reads `applicationId`, sets the app label with `resValue` and the URL scheme with `manifestPlaceholders`. The Kotlin package (`namespace`) never changes, so no source files move |
+| iOS | `ios/Flutter/Brand.xcconfig`; `AppIcon.appiconset` | `PRODUCT_BUNDLE_IDENTIFIER`, `DEVELOPMENT_TEAM` and display name; Info.plist and entitlements use `$(BRAND_…)` variables for the URL scheme, App Group (`group.<bundle id>`) and keychain group; the extension's ID is `<bundle id>.NotificationService` |
+| macOS | `macos/Runner/Configs/Brand.xcconfig`; `AppIcon.appiconset`; menu-bar template icon | same as iOS |
+| Windows | `windows/brand.cmake`; `app_icon.ico`; tray icon; MSIX settings | `BINARY_NAME`, version-resource strings via compile definitions, `msix` packaging |
+| Linux | `linux/brand.cmake`; hicolor PNG icons; `.desktop` file; AppStream metainfo; Flatpak manifest | `BINARY_NAME` and `APPLICATION_ID` in `CMakeLists.txt` |
+| Store listings | `fastlane/metadata/*` names and descriptions | Fastlane |
+
+The generator also derives every small icon from the two images. The Android notification icon and
+Linux tray icon are white silhouettes, the macOS menu-bar icon is a black template image, and the iOS
+icon is flattened onto `icon_background`, because the App Store rejects icons with transparency.
+
+### 12.4 Identity that must be yours
+
+| Item | Why it must be unique | Comes from |
+|---|---|---|
+| Android `applicationId` | Android and Google Play treat it as the app's identity | `brand.yaml` |
+| Apple bundle ID + Team ID | App Store identity; APNs tokens are tied to it | `brand.yaml` + your Apple Developer account |
+| App Group, keychain group | Must belong to your Apple team | derived from the bundle ID |
+| URL scheme | Two installed apps claiming the same scheme would fight over subscribe links | `brand.yaml` |
+| Firebase project | FCM tokens are tied to it | `google-services.json` in the brand folder |
+| APNs key, FCM service account | The server or your relay needs them to push to your app | server `push.apps` or your relay's config. **Secret, never in the brand folder** |
+| Signing keys (Android keystore, Apple certificates, Windows certificate) | Prove the build is yours | CI secrets or your local keychain. **Never in the brand folder** |
+
+### 12.5 Rebranding in practice
+
+```bash
+git clone https://github.com/vignesh-ramsh/flare && cd flare
+cp -r brand ../acme-brand                         # start from the default brand
+$EDITOR ../acme-brand/brand.yaml                  # name, IDs, colours, default server
+cp ~/acme/icon.png ~/acme/symbol.png ../acme-brand/
+make brand BRAND_DIR=../acme-brand                # validate and generate
+make app-android app-linux BRAND_DIR=../acme-brand
+```
+
+- Keep the brand folder in a separate (even private) repository; it is the only thing a rebrand owns.
+- To update: check out a newer upstream tag and run the same two `make` commands.
+- Rebranders who don't want to set up five build machines can call the upstream **reusable GitHub
+  Actions workflow** (`.github/workflows/build-apps.yml`, `workflow_call`) from their own repository,
+  passing the brand folder and signing secrets.
+- For push, configure the server or a relay with the app's keys (§5.3).
+
+### 12.6 Keeping rebranding working
+
+- **Validation before build.** The generator checks ID formats for each platform, image sizes, that
+  `symbol.png` is monochrome, name lengths, and that `privacy_policy` is set for store builds. It fails
+  with a clear message instead of producing a broken app.
+- **No hard-coded brand.** UI code reads `Brand.name`; translated strings use an `{appName}`
+  placeholder. A CI test fails if the word "Flare" appears in `app/lib` (outside `lib/brand/`) or in
+  any `.arb` file.
+- **Example brand in CI.** Every pull request also builds the app with `brand/examples/acme`, so a
+  change that breaks rebranding is caught before it merges.
+- **Identity mix-ups.** The generator warns when a release build uses the upstream identifiers with a
+  different name, because the stores would reject it and it would break the trademark policy (§14.2).
+- **Attribution stays.** The About screen always says "Based on Flare" and the licences page includes
+  Flare's `LICENSE` and `NOTICE`. This is not configurable; it is how rebranded builds meet the
+  Apache-2.0 notice requirement.
+
+---
+
+## 13. Self-hosting
+
+### 13.1 Quick start (Docker Compose)
+
+```yaml
+# docker-compose.yml
+services:
+  flare:
+    image: ghcr.io/vignesh-ramsh/flare:1
+    command: serve --config /etc/flare/server.yml
+    volumes:
+      - ./server.yml:/etc/flare/server.yml:ro
+      - flare-data:/var/lib/flare
+    restart: unless-stopped
+  caddy:
+    image: caddy:2
+    ports: ["80:80", "443:443"]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+    restart: unless-stopped
+volumes:
+  flare-data:
+  caddy-data:
+```
+
+```
+# Caddyfile: Caddy gets the TLS certificate and proxies WebSockets and streams without extra settings
+flare.example.com {
+    reverse_proxy flare:8080
+}
+```
+
+```bash
+docker compose up -d
+docker compose exec flare flare user add --role=admin alice
+docker compose exec flare flare token add alice --label "home-server"
+```
+
+### 13.2 Other ways to install
+
+- **Binary + systemd:** `.deb`/`.rpm` packages or a plain binary from GitHub Releases, with the sample
+  unit file in `deploy/`.
+- **Kubernetes:** Helm chart in `deploy/helm` (cluster mode with PostgreSQL + NATS).
+- **Behind nginx** instead of Caddy, streaming needs explicit settings:
+
+```nginx
+location / {
+    proxy_pass http://127.0.0.1:8080;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;     # WebSocket
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_buffering off;                        # SSE / JSON streams
+    proxy_read_timeout 3h;                      # long-lived subscriptions
+}
+```
+
+### 13.3 Backups and upgrades
+
+- **Backups:** `flare backup <file>` writes a consistent snapshot of the SQLite database while the server
+  runs (`VACUUM INTO`); Litestream can replicate it continuously to S3. On PostgreSQL, use `pg_dump` or
+  your provider's backups. Attachments are short-lived, so backing them up is optional.
+- **Upgrades:** semantic versioning. Upgrades within a major version are drop-in: database migrations run
+  automatically at start-up, each in a transaction. Downgrades aren't supported, so back up first.
+  Breaking changes only happen in a new major version, with a migration guide.
+
+### 13.4 Version compatibility
+
+Rebranded apps often lag behind upstream releases, so apps and servers of different versions must keep
+working together:
+
+- `/v1/config` returns `api_version` and a `features` list (`"attachments"`, `"e2ee"`, …). Clients
+  feature-detect instead of comparing version numbers.
+- A v1 server accepts every v1 client, and a v1 client works with every v1 server.
+
+### 13.5 Privacy defaults
+
+- No telemetry, analytics, crash reporting or update checks in the server or the upstream apps.
+- The server's only outbound calls go to push providers and relays the operator configured
+  (`push.apps`, `push.allowed-relays`). The sample config lists the official relay so the official iOS
+  app works out of the box; delete that line to turn it off.
+- Logs never include message content, and IP logging can be switched off.
+
+---
+
+## 14. Open-source project setup
+
+### 14.1 Licence
+
+| Option | Fit for Flare |
+|---|---|
+| **Apache-2.0 for everything (recommended)** | Lets anyone self-host, modify and publish rebranded apps, including in app stores and commercially. Includes an explicit patent grant and is the norm for infrastructure projects. Does not force forks to publish their changes. |
+| AGPL-3.0 server + Apache-2.0 apps | Anyone running a modified server as a service must publish its source; the apps stay store-friendly. Some companies avoid AGPL software, which can slow adoption. |
+| GPL / AGPL for the apps | Not recommended. Copyleft terms are widely considered incompatible with App Store distribution terms, which would stop third parties from publishing rebranded iOS builds. |
+| MIT | Simple and permissive, but has no explicit patent grant. |
+
+This is a recommendation, not legal advice. If you have a commercial stake, have a lawyer confirm the
+choice before the first release.
+
+### 14.2 Trademark policy (`TRADEMARKS.md`)
+
+The code is open source; the **"Flare" name and logo are not** (Apache-2.0 §6 grants no trademark
+rights). This pairs naturally with white-labelling:
+
+- Anyone may build and use the apps, modified or not, for themselves or inside their organisation, and
+  may say "based on Flare" or "works with Flare".
+- Anyone who **publishes** a modified or rebuilt app (in a store or on a website) must use their own
+  name, logo and identifiers. The brand folder makes that a few minutes of work.
+- The official push relay serves only the official apps.
+- `NOTICE` lists the logo files in `brand/` as excluded from the Apache licence.
+
+### 14.3 Contributions and community
+
+- **DCO, not a CLA:** contributors sign off commits (`git commit -s`), enforced by the DCO GitHub App.
+  Under Apache-2.0, contributions are licensed under the same licence ("inbound = outbound").
+- **Community files:** `README.md`, `LICENSE`, `NOTICE`, `CONTRIBUTING.md` (dev setup, tests, commit
+  style), `CODE_OF_CONDUCT.md` (Contributor Covenant), `SECURITY.md` (report vulnerabilities privately
+  through GitHub's private vulnerability reporting), `TRADEMARKS.md`, `GOVERNANCE.md`, issue and PR
+  templates, `CODEOWNERS`.
+- **Governance:** start with a small maintainer team and write down how decisions are made in
+  `GOVERNANCE.md` as the contributor base grows.
+- **Changelog:** Conventional Commits, so release notes and `CHANGELOG.md` can be generated.
+
+### 14.4 Releases and supply chain
+
+- Releases are built only in CI from signed tags. GoReleaser produces checksums, SBOMs (Syft) and
+  keyless cosign signatures; GitHub artifact attestations record build provenance.
+- Multi-arch container images on `ghcr.io`, signed the same way.
+- Dependency updates via Renovate or Dependabot. CI licence checks (`go-licenses` for Go,
+  `very_good packages check licenses` for Dart) keep every dependency Apache-compatible.
+
+### 14.5 Official distribution channels
+
+- **Server:** GitHub Releases, `ghcr.io`, `.deb`/`.rpm`, Homebrew, Helm.
+- **Apps:** GitHub Releases (APK, DMG, MSIX, AppImage), F-Droid, Google Play, App Store, Flathub, winget.
+- **F-Droid** only accepts apps without proprietary libraries. The FOSS build swaps the Firebase package
+  for a no-op stub at build time (`tool/foss`), because Flutter registers every plugin listed in
+  `pubspec.yaml` no matter which Gradle flavour is built. FOSS builds get push through instant-delivery
+  mode or UnifiedPush. Android builds should be reproducible so F-Droid can verify them.
+
+### 14.6 Translations and documentation
+
+- Strings live in ARB files; translators contribute through Weblate, which offers free hosting to
+  libre projects.
+- `docs/` is published as a static site on GitHub Pages: self-hosting guide, configuration reference
+  (generated from the config struct), API reference (generated from OpenAPI), and a rebranding guide.
+
+---
+
+## 15. Alternatives considered
 
 ### Server language
 
@@ -642,42 +1024,54 @@ cluster:
 
 | Option | Verdict |
 |---|---|
-| **Flutter** | **Chosen.** One codebase for all five OSes with mature desktop support and plugins for notifications, tray and secure storage. |
+| **Flutter** | **Chosen.** One codebase for all five OSes with mature desktop support and plugins for notifications, tray and secure storage. Branding is a matter of generated config, not code. |
 | Kotlin Multiplatform + Compose Multiplatform | Best Android integration and good iOS interop; desktop runs on the JVM (heavier tray app, bundled runtime). Choose it if the team is Kotlin-first. |
 | Tauri 2 | Tiny desktop binaries with a web UI, but the mobile background/push story is immature. |
 | React Native | No first-class Linux support, so it fails the "all major OS" requirement. |
-| Fully native per OS | Best UX, but four to five codebases. |
+| Fully native per OS | Best UX, but four to five codebases, and rebranding would have to be done separately in each one. |
 
 ---
 
-## 13. Roadmap
+## 16. Roadmap
+
+**Phase 0 — Foundations**
+- Licence, `NOTICE`, community files and trademark policy.
+- OpenAPI contract, CI pipeline, monorepo layout.
+- Branding generator and the example brand **from day one**: brand-neutral code is cheap to keep but
+  expensive to retrofit.
 
 **Phase 1 — MVP**
 - Server, single node: publish, WebSocket/SSE/JSON/poll subscribe, SQLite cache with catch-up, tokens
-  and ACL, rate limits, Docker image.
+  and ACL, rate limits, Docker image and the Compose self-hosting guide.
 - CLI: `flare publish`, `flare subscribe`.
 - Android app (FCM + instant-delivery mode) and desktop apps (tray + native notifications).
 
 **Phase 2 — Full platform coverage**
-- iOS app with Notification Service Extension and the push relay.
+- iOS app with Notification Service Extension; direct push (`push.apps`) and `flare relay`.
+- Reusable GitHub Actions workflow for branded builds.
 - Attachments, action buttons, scheduled delivery, Markdown, icons.
-- Web PWA with Web Push.
+- Web PWA with Web Push and runtime branding.
+- F-Droid FOSS build.
 
 **Phase 3 — Scale and privacy**
 - Cluster mode (PostgreSQL + NATS JetStream + `flare worker`).
 - End-to-end encrypted topics.
 - UnifiedPush distributor support, so other apps (for example Matrix clients) can receive push via Flare.
-- Email-to-topic and webhook gateways; hosted tiers and billing if Flare is offered as a service.
+- Email-to-topic and webhook gateways.
 
 ---
 
-## 14. Open questions
+## 17. Open questions
 
-1. **Hosted service, self-hosted only, or both?** This decides whether the push relay, tiers and billing
-   are needed early.
-2. **Is E2EE a launch requirement?** If yes, design the envelope format before the first public release so
+1. **Licence:** Apache-2.0 for everything (recommended), or AGPL-3.0 for the server?
+2. **Official builds:** will the project publish official apps in the stores and run the official relay?
+   That needs an Apple Developer account ($99/year), a Google Play account ($25 one-time) and a small
+   server for the relay. Without official builds, every self-hoster who wants iOS push would have to
+   build their own branded app.
+3. **Is E2EE a launch requirement?** If yes, design the envelope format before the first public release so
    it doesn't need a breaking change.
-3. **How much two-way messaging?** Simple replies fit the current design; full chat would add presence,
+4. **How much two-way messaging?** Simple replies fit the current design; full chat would add presence,
    receipts and much longer retention.
-4. **Team skills.** A Kotlin-heavy team should weigh Kotlin Multiplatform; a Rust-heavy team, Rust for the server.
-5. **Name.** Check trademark and app-store availability for "Flare" before publishing the apps.
+5. **Team skills.** A Kotlin-heavy team should weigh Kotlin Multiplatform; a Rust-heavy team, Rust for the server.
+6. **Name.** Check trademark and app-store availability for "Flare" before publishing anything; the
+   trademark policy depends on the project actually being able to use the name.
