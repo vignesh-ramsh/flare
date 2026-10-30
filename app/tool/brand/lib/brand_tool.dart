@@ -1,0 +1,9 @@
+/// Validates a brand folder and generates the per-platform branding files.
+library;
+
+export 'src/generator.dart'
+    show renderBrand, writeOutputs, ownedDirectories, ownedFiles;
+export 'src/loader.dart' show Brand, loadBrand;
+export 'src/outputs.dart' show Outputs;
+export 'src/spec.dart'
+    show BrandSpec, Report, parseBrandYaml, upstreamName, upstreamUrl;

@@ -1,0 +1,38 @@
+# Example brand for a fictional company, built in CI to prove that rebranding
+# works without touching any source file. Apache-2.0 licensed, like the code.
+schema: 1
+
+app:
+  name: Acme Alerts
+  short_name: Acme
+  description: Alerts from Acme's servers, on every device.
+  url_scheme: acme-alerts
+  app_links_domain: ""
+
+ids:
+  android: com.acme.alerts
+  apple: com.acme.alerts
+  apple_team_id: ""
+  windows: Acme.Alerts
+  windows_publisher: "CN=Acme Corp"
+  linux: com.acme.Alerts
+
+look:
+  icon: icon.png
+  symbol: symbol.png
+  icon_background: "#1D4ED8"
+  primary_color: "#2563EB"
+
+defaults:
+  server_url: https://alerts.acme.example   # an internal build: locked to the company's own server
+  allow_custom_servers: false
+  push_relay_url: ""
+
+links:
+  website: https://acme.example
+  support: https://acme.example/support
+  privacy_policy: https://acme.example/privacy
+  source_code: ""
+
+firebase:
+  android_config: ""

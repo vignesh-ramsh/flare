@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- Flare app icon artwork: transparent background, kept inside the central 66% safe zone. -->
+  <defs>
+    <linearGradient id="flame" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FDBA74"/>
+      <stop offset="1" stop-color="#EA580C"/>
+    </linearGradient>
+  </defs>
+  <g transform="translate(512 512) scale(1.4) translate(-256 -253)">
+    <path fill="url(#flame)" d="M 268 36 C 268 36, 400 140, 400 300 C 400 395, 335 470, 256 470 C 177 470, 112 395, 112 300 C 112 230, 150 185, 190 150 C 190 200, 215 225, 240 230 C 230 160, 245 90, 268 36 Z"/>
+    <path fill="#FEF3C7" d="M 256 250 C 256 250, 330 310, 330 370 C 330 412, 296 440, 256 440 C 216 440, 182 412, 182 370 C 182 320, 256 250, 256 250 Z"/>
+  </g>
+</svg>

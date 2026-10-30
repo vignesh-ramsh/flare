@@ -24,6 +24,20 @@ The server (Go) and the apps (Flutter) don't exist yet. This section will list t
 once their skeletons land. The planned toolchain is the latest stable Go, the stable Flutter channel and
 `make` (see [docs/ARCHITECTURE.md §11](docs/ARCHITECTURE.md#11-recommended-tech-stack)).
 
+**Branding tool** (`app/tool/brand`, written in Dart, needs Dart 3.9 or newer; it comes with Flutter).
+It is the one part that exists today:
+
+```bash
+make brand-test     # analyze and test it
+make brand-check    # check that app code doesn't hard-code the project name
+make brand          # generate the app's branding files from brand/
+```
+
+Run `dart format app/tool/brand` before you commit; CI checks it with Dart 3.9, so if your newer Dart
+formats something differently, use 3.9's formatter. See
+[app/tool/brand/README.md](app/tool/brand/README.md) and, for people making their own brand,
+[brand/README.md](brand/README.md).
+
 ## Pull requests
 
 - Keep each pull request to one change; small ones get reviewed faster.

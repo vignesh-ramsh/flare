@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- Example brand artwork (Apache-2.0): a white bell on a transparent background. -->
+  <g transform="translate(512 512) scale(1.5) translate(-256 -243)" fill="#FFFFFF">
+    <circle cx="256" cy="70" r="24"/>
+    <path d="M 256 94 C 170 94, 130 160, 130 240 L 130 310 L 90 360 L 90 380 L 422 380 L 422 360 L 382 310 L 382 240 C 382 160, 342 94, 256 94 Z"/>
+    <path d="M 216 400 A 40 40 0 0 0 296 400 Z"/>
+  </g>
+</svg>

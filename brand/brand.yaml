@@ -1,0 +1,41 @@
+# The official Flare brand. To make your own, copy this folder, edit this file,
+# replace icon.png and symbol.png, and run:  make brand BRAND_DIR=<your folder>
+# Every field is explained in README.md. Values in quotes must stay quoted.
+schema: 1
+
+app:
+  name: Flare                          # launcher label, window title, notifications, About screen (max 30 characters)
+  short_name: Flare                    # where space is tight: Android launcher label (max 12 characters)
+  description: Push notifications for your scripts, servers and apps.   # max 80 characters
+  url_scheme: flare                    # subscribe links look like flare://subscribe/<host>/<topic>
+  app_links_domain: ""                 # optional: host for Universal Links / Android App Links
+
+ids:                                   # Must be unique to you for any build you distribute.
+  # PLACEHOLDERS: the project has not registered its real identifiers yet.
+  # `--release` builds refuse to run until these are replaced.
+  android: com.example.flare           # Android applicationId
+  apple: com.example.flare             # iOS and macOS bundle ID; the iOS extension is <id>.NotificationService
+  apple_team_id: ""                    # your 10-character Apple Developer Team ID
+  windows: Example.Flare               # MSIX package identity
+  windows_publisher: "CN=Example"      # must match the subject of your code-signing certificate
+  linux: com.example.Flare             # .desktop file, AppStream and Flatpak ID
+
+look:
+  icon: icon.png                       # 1024x1024 artwork, kept inside the central two thirds
+  symbol: symbol.png                   # one-colour silhouette on a transparent background
+  icon_background: "#0F172A"           # fills behind the artwork (adaptive icons, iOS, macOS, Windows, Linux)
+  primary_color: "#F97316"             # main colour of the app
+
+defaults:
+  server_url: ""                       # server pre-filled for new users; "" makes them enter one
+  allow_custom_servers: true           # false locks the app to server_url (for company builds)
+  push_relay_url: ""                   # your push relay, or "" if your servers push directly
+
+links:                                 # shown in Settings and About, and in the store listings
+  website: https://github.com/vignesh-ramsh/flare
+  support: https://github.com/vignesh-ramsh/flare/issues
+  privacy_policy: ""                   # REQUIRED by the app stores; `--release` refuses an empty one
+  source_code: https://github.com/vignesh-ramsh/flare
+
+firebase:
+  android_config: ""                   # e.g. firebase/google-services.json; "" = no FCM push on Android

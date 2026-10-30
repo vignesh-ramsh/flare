@@ -1,0 +1,53 @@
+name: Brand tool
+
+# Checks the branding generator and the brand folders, so that rebranding keeps
+# working. Rebuilding the apps with the example brand will join this once the
+# Flutter app exists.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "brand/**"
+      - "app/tool/**"
+      - "Makefile"
+      - ".gitignore"
+      - ".github/workflows/brand.yml"
+  pull_request:
+    paths:
+      - "brand/**"
+      - "app/tool/**"
+      - "Makefile"
+      - ".gitignore"
+      - ".github/workflows/brand.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Dart ${{ matrix.sdk }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The oldest Dart the tool supports, and the current stable one.
+        sdk: ["3.9.4", stable]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: ${{ matrix.sdk }}
+      - name: Check formatting
+        # Formatting output changes between Dart releases, so it is only checked
+        # with the pinned one.
+        if: matrix.sdk == '3.9.4'
+        run: dart format --output=none --set-exit-if-changed app/tool/brand
+      - name: Analyze and test
+        run: make brand-test
+      - name: Check that app code does not hard-code the project name
+        run: make brand-check
+      - name: Generate with the official brand
+        run: make brand
+      - name: Generate with the example brand
+        run: make brand BRAND_DIR=brand/examples/acme

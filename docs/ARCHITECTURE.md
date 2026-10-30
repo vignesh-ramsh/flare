@@ -709,27 +709,28 @@ follow upstream releases with a plain `git pull` and a rebuild.
 ```
 brand/                       # or any folder, passed as BRAND_DIR=/path/to/acme-brand
 ├── brand.yaml
-├── icon.png                 # 1024×1024 square app icon artwork
-├── symbol.png               # monochrome silhouette on transparent background, ≥ 256×256
+├── icon.png                 # 1024×1024 square artwork, kept inside the central two thirds
+├── symbol.png               # one-colour silhouette on a transparent background, square, ≥ 256 px
+├── source/                  # optional: editable SVG sources of the two images (the generator ignores it)
 └── firebase/
     └── google-services.json # from your Firebase project (omit for FOSS-only builds)
 ```
 
 ```yaml
-# brand.yaml: everything that makes a build "yours".
+# brand.yaml: everything that makes a build "yours" (shortened; brand/README.md explains every field).
 schema: 1
 
 app:
-  name: Flare                          # launcher label, window title, notifications, About screen
-  short_name: Flare                    # ≤ 12 characters: Android launcher, PWA
-  description: Push notifications for your scripts, servers and apps.
+  name: Flare                          # launcher label, window title, notifications, About screen (≤ 30 characters)
+  short_name: Flare                    # ≤ 12 characters: Android launcher label
+  description: Push notifications for your scripts, servers and apps.   # ≤ 80 characters
   url_scheme: flare                    # <scheme>://subscribe/<host>/<topic>
   app_links_domain: ""                 # optional: Universal Links / Android App Links host
 
 ids:                                   # MUST be unique for any build you distribute (§12.4)
   android: com.example.flare           # applicationId
   apple: com.example.flare             # iOS + macOS bundle ID; extension = <id>.NotificationService
-  apple_team_id: ABCDE12345
+  apple_team_id: "ABCDE12345"
   windows: Example.Flare               # MSIX identity name
   windows_publisher: "CN=Example"      # must match your code-signing certificate's subject
   linux: com.example.Flare             # .desktop file, AppStream and Flatpak ID
@@ -737,8 +738,8 @@ ids:                                   # MUST be unique for any build you distri
 look:
   icon: icon.png
   symbol: symbol.png                   # source for notification, tray and menu-bar icons
-  icon_background: "#0F172A"           # adaptive-icon background; fills transparency on iOS
-  primary_color: "#F97316"             # Material 3 seed colour
+  icon_background: "#0F172A"           # drawn behind the artwork wherever a platform needs an opaque or rounded tile
+  primary_color: "#F97316"             # the app's main colour
 
 defaults:
   server_url: https://flare.example.com   # pre-filled server ("" = the user enters one)
@@ -752,11 +753,20 @@ links:                                 # shown in Settings / About and the store
   source_code: https://github.com/example/flare
 
 firebase:
-  android_config: firebase/google-services.json
+  android_config: firebase/google-services.json   # "" = no FCM push on Android
 ```
 
-The upstream repository's `brand/` folder holds the official Flare brand. (`com.example.*` and
-`flare.example.com` above are placeholders until the project picks its real identifiers.)
+**Image rules.** `icon.png` is the logo artwork on a transparent background (or a full-bleed opaque
+image) with everything that matters inside the central two thirds, because Android crops adaptive icons
+to a circle or squircle. `symbol.png` contributes only its shape (its alpha channel), so that notification
+and tray icons can be drawn in the single colour each platform requires; the generator trims it to the
+shape and adds the padding each platform needs.
+
+The upstream repository's `brand/` folder holds the official Flare brand. Until the project registers
+real identifiers, its IDs are placeholders (`com.example.*`), and it leaves `server_url`,
+`push_relay_url` and `privacy_policy` empty. `make brand RELEASE=1` refuses placeholders and a missing
+privacy policy, so none of that can ship by accident. Every field is documented in
+[`brand/README.md`](../brand/README.md).
 
 ### 12.3 How a branded build works
 
@@ -768,13 +778,13 @@ flowchart LR
     S["symbol.png"]
     F["google-services.json"]
   end
-  T["make brand<br/>(dart run tool/brand)<br/>validate + generate"]
+  T["make brand<br/>(app/tool/brand)<br/>validate + generate"]
   subgraph Gen["Generated files (gitignored)"]
-    D["lib/brand/brand.g.dart"]
+    D["lib/brand/brand.g.dart<br/>assets/brand: logo, tray icons"]
     A["Android: brand.properties,<br/>launcher, adaptive and notification icons"]
-    X["iOS + macOS: Brand.xcconfig,<br/>AppIcon sets, menu-bar icon"]
-    W["Windows + Linux: brand.cmake,<br/>.ico, PNGs, .desktop, Flatpak manifest"]
-    M["Store metadata<br/>Fastlane, MSIX, AppStream"]
+    X["iOS + macOS: Brand.xcconfig,<br/>AppIcon sets"]
+    W["Windows + Linux: brand.cmake,<br/>.ico, hicolor PNGs, .desktop, AppStream"]
+    M["Store metadata<br/>Fastlane titles, descriptions, links"]
   end
   B["flutter build (per platform)"]
   Y --> T
@@ -793,22 +803,32 @@ flowchart LR
   M --> B
 ```
 
-The native project files are committed once, already wired to read the generated files. Neither
-upstream nor a rebrand ever edits them to change the brand:
+The generator ([`app/tool/brand`](../app/tool/brand/README.md)) exists and is tested. The native
+projects that read its output are created with the Flutter app (Phase 1) and wired to it once; after
+that, neither upstream nor a rebrand ever edits them to change the brand:
 
 | Platform | Generated (gitignored) | Wired into |
 |---|---|---|
-| All (Dart) | `lib/brand/brand.g.dart`: name, colours, links, URL scheme, default server, relay URL | UI, theme, settings, About screen |
-| Android | `android/brand.properties`; `mipmap-*` launcher and adaptive icons; `drawable-*/ic_notification.png` | `build.gradle.kts` reads `applicationId`, sets the app label with `resValue` and the URL scheme with `manifestPlaceholders`. The Kotlin package (`namespace`) never changes, so no source files move |
+| All (Dart) | `lib/brand/brand.g.dart`: name, colours, links, URL scheme, default server, relay URL, push identities | UI, theme, settings, About screen |
+| Images the app loads | `assets/brand/`: `logo.png`, `tray_linux.png`, `tray_macos_template.png`, `tray_windows.ico` | About screen, system tray |
+| Android | `android/brand.properties`; `android/app/src/brand/res/`: launcher, adaptive, monochrome and notification icons, colours; `google-services.json` | `build.gradle.kts` reads `applicationId`, sets the app label with `resValue` and the URL scheme with `manifestPlaceholders`, and adds the `brand/res` folder as a resource directory. The Kotlin package (`namespace`) never changes, so no source files move |
 | iOS | `ios/Flutter/Brand.xcconfig`; `AppIcon.appiconset` | `PRODUCT_BUNDLE_IDENTIFIER`, `DEVELOPMENT_TEAM` and display name; Info.plist and entitlements use `$(BRAND_…)` variables for the URL scheme, App Group (`group.<bundle id>`) and keychain group; the extension's ID is `<bundle id>.NotificationService` |
-| macOS | `macos/Runner/Configs/Brand.xcconfig`; `AppIcon.appiconset`; menu-bar template icon | same as iOS |
-| Windows | `windows/brand.cmake`; `app_icon.ico`; tray icon; MSIX settings | `BINARY_NAME`, version-resource strings via compile definitions, `msix` packaging |
-| Linux | `linux/brand.cmake`; hicolor PNG icons; `.desktop` file; AppStream metainfo; Flatpak manifest | `BINARY_NAME` and `APPLICATION_ID` in `CMakeLists.txt` |
-| Store listings | `fastlane/metadata/*` names and descriptions | Fastlane |
+| macOS | `macos/Runner/Configs/Brand.xcconfig`; `AppIcon.appiconset` | same as iOS |
+| Windows | `windows/brand.cmake`; `windows/runner/resources/app_icon.ico` | `BINARY_NAME` and version-resource strings; the MSIX identity and publisher are available for packaging |
+| Linux | `linux/brand.cmake`; `linux/brand/`: `<id>.desktop` (with the URL-scheme handler), `<id>.metainfo.xml`, hicolor PNG icons | `BINARY_NAME` and `APPLICATION_ID` in `CMakeLists.txt`; the Flatpak manifest is written when Linux packaging is set up |
+| Store listings | `fastlane/metadata/`: title, short description, name and the privacy, support and website URLs | Fastlane (full descriptions, screenshots and release notes stay hand-written) |
 
-The generator also derives every small icon from the two images. The Android notification icon and
-Linux tray icon are white silhouettes, the macOS menu-bar icon is a black template image, and the iOS
-icon is flattened onto `icon_background`, because the App Store rejects icons with transparency.
+The generator derives every size from the two images, one recipe per platform. The iOS icon is the
+artwork on `icon_background`, square and without an alpha channel, because the App Store rejects icons
+with transparency. The macOS icon is an inset rounded tile, as macOS expects. Windows, Linux, the
+in-app logo and the legacy Android icon use a full-size rounded tile. The Android adaptive icon uses the
+artwork as its foreground over `icon_background`, plus a monochrome layer for themed icons. The Android
+notification icon and Linux tray icon are white silhouettes and the macOS menu-bar icon is a black
+template image.
+
+The generator owns a fixed list of files and folders (and `.gitignore` is tested to match it). It empties
+them before every run, so switching brands never leaves the previous brand's files behind, and it never
+touches anything else.
 
 ### 12.4 Identity that must be yours
 
@@ -829,12 +849,13 @@ git clone https://github.com/vignesh-ramsh/flare && cd flare
 cp -r brand ../acme-brand                         # start from the default brand
 $EDITOR ../acme-brand/brand.yaml                  # name, IDs, colours, default server
 cp ~/acme/icon.png ~/acme/symbol.png ../acme-brand/
-make brand BRAND_DIR=../acme-brand                # validate and generate
-make app-android app-linux BRAND_DIR=../acme-brand
+make brand BRAND_DIR=../acme-brand                # validate and generate the branding files
+make brand BRAND_DIR=../acme-brand RELEASE=1      # before a release: refuses placeholder IDs and URLs
+# make app-android app-linux BRAND_DIR=../acme-brand   (build targets arrive with the Flutter app)
 ```
 
 - Keep the brand folder in a separate (even private) repository; it is the only thing a rebrand owns.
-- To update: check out a newer upstream tag and run the same two `make` commands.
+- To update: check out a newer upstream tag and run the same `make` commands.
 - Rebranders who don't want to set up five build machines can call the upstream **reusable GitHub
   Actions workflow** (`.github/workflows/build-apps.yml`, `workflow_call`) from their own repository,
   passing the brand folder and signing secrets.
@@ -842,19 +863,29 @@ make app-android app-linux BRAND_DIR=../acme-brand
 
 ### 12.6 Keeping rebranding working
 
-- **Validation before build.** The generator checks ID formats for each platform, image sizes, that
-  `symbol.png` is monochrome, name lengths, and that `privacy_policy` is set for store builds. It fails
-  with a clear message instead of producing a broken app.
+- **Validation before build.** The generator checks name lengths and characters, ID formats for each
+  platform, colours, URLs, image formats and sizes, that `symbol.png` has a transparent background (a
+  solid image would show as a plain square in notifications), that `google-services.json` really is for
+  the app registered under `ids.android`, that files stay inside the brand folder, and that no key is
+  misspelled. It reports every problem at once, with the field name, and generates nothing until they
+  are fixed. With `--release` (`make brand RELEASE=1`) it also refuses placeholder identifiers and
+  addresses and a missing `privacy_policy`.
 - **No hard-coded brand.** UI code reads `Brand.name`; translated strings use an `{appName}`
   placeholder. A CI test fails if the word "Flare" appears in `app/lib` (outside `lib/brand/`) or in
   any `.arb` file.
-- **Example brand in CI.** Every pull request also builds the app with `brand/examples/acme`, so a
-  change that breaks rebranding is caught before it merges.
-- **Identity mix-ups.** The generator warns when a release build uses the upstream identifiers with a
-  different name, because the stores would reject it and it would break the trademark policy (§14.2).
+- **Example brand in CI.** Every pull request generates the files for both the official brand and
+  `brand/examples/acme`, checks the outputs (icon sizes, no alpha channel on iOS icons, valid Dart,
+  nothing from the other brand left over), and a test asserts that the Acme output contains no trace of
+  the name "Flare" except the attribution constants. Once the Flutter app exists, CI also builds it with
+  the Acme brand.
+- **Identity mix-ups.** The generator warns when a release build uses the upstream identifiers under
+  a different name, because the stores would reject it and push notifications are tied to them, and when
+  a build uses the name "Flare" with its own identifiers, because that would break the trademark policy
+  (§14.2).
 - **Attribution stays.** The About screen always says "Based on Flare" and the licences page includes
-  Flare's `LICENSE` and `NOTICE`. This is not configurable; it is how rebranded builds meet the
-  Apache-2.0 notice requirement.
+  Flare's `LICENSE` and `NOTICE`. This is not configurable (`Brand.upstreamName` and `Brand.upstreamUrl`
+  are fixed by the generator, and `brand.yaml` rejects a key that tries to set them); it is how rebranded
+  builds meet the Apache-2.0 notice requirement.
 
 ---
 
@@ -1039,7 +1070,8 @@ rights). This pairs naturally with white-labelling:
 - Licence, `NOTICE`, community files and trademark policy (done).
 - OpenAPI contract, CI pipeline, monorepo layout.
 - Branding generator and the example brand **from day one**: brand-neutral code is cheap to keep but
-  expensive to retrofit.
+  expensive to retrofit (generator, example brand, tests and CI checks are done; wiring the native
+  projects to it comes with the Flutter app).
 
 **Phase 1 — MVP**
 - Server, single node: publish, WebSocket/SSE/JSON/poll subscribe, SQLite cache with catch-up, tokens
