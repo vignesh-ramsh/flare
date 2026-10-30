@@ -13,3 +13,14 @@ curl -d "Backup finished" https://flare.example.com/backups
   the apps. No source changes needed.
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the architecture and tech stack.
+
+## Contributing
+
+Contributions are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md). Everyone taking part follows the
+[Code of Conduct](CODE_OF_CONDUCT.md). Please report security issues privately as described in
+[SECURITY.md](SECURITY.md).
+
+## License
+
+Flare is licensed under the [Apache License, Version 2.0](LICENSE). The Flare name and logo are not
+covered by that licence; see [TRADEMARKS.md](TRADEMARKS.md).

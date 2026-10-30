@@ -26,7 +26,7 @@ logo** by editing one brand folder (§12). No source changes are needed.
 - **Every major OS**: Android, iOS, macOS, Windows, Linux, plus a web/PWA client and a CLI.
 - **Reliable delivery**: a message accepted by the server reaches every subscriber at least once, even
   if the device was offline or asleep when it was sent.
-- **Open source**: permissive licence; everything needed to run, build and publish Flare is in the
+- **Open source**: Apache-2.0; everything needed to run, build and publish Flare is in the
   repository; no telemetry; no dependency on any service run by the Flare project.
 - **Self-hostable**: one static binary, SQLite by default, no other required services.
 - **White-label apps**: app name, logo, colours, identifiers and default server come from a single
@@ -949,17 +949,18 @@ working together:
 
 ### 14.1 Licence
 
+**Decision: Apache-2.0 for everything** (server, relay, CLI, apps, web app and build tooling). The
+licence text is in [`LICENSE`](../LICENSE) and the copyright notice in [`NOTICE`](../NOTICE); source
+files carry SPDX headers ([CONTRIBUTING.md](../CONTRIBUTING.md)). Options that were considered:
+
 | Option | Fit for Flare |
 |---|---|
-| **Apache-2.0 for everything (recommended)** | Lets anyone self-host, modify and publish rebranded apps, including in app stores and commercially. Includes an explicit patent grant and is the norm for infrastructure projects. Does not force forks to publish their changes. |
+| **Apache-2.0 for everything (chosen)** | Lets anyone self-host, modify and publish rebranded apps, including in app stores and commercially. Includes an explicit patent grant and is the norm for infrastructure projects. Does not force forks to publish their changes. |
 | AGPL-3.0 server + Apache-2.0 apps | Anyone running a modified server as a service must publish its source; the apps stay store-friendly. Some companies avoid AGPL software, which can slow adoption. |
 | GPL / AGPL for the apps | Not recommended. Copyleft terms are widely considered incompatible with App Store distribution terms, which would stop third parties from publishing rebranded iOS builds. |
 | MIT | Simple and permissive, but has no explicit patent grant. |
 
-This is a recommendation, not legal advice. If you have a commercial stake, have a lawyer confirm the
-choice before the first release.
-
-### 14.2 Trademark policy (`TRADEMARKS.md`)
+### 14.2 Trademark policy ([`TRADEMARKS.md`](../TRADEMARKS.md))
 
 The code is open source; the **"Flare" name and logo are not** (Apache-2.0 §6 grants no trademark
 rights). This pairs naturally with white-labelling:
@@ -1035,7 +1036,7 @@ rights). This pairs naturally with white-labelling:
 ## 16. Roadmap
 
 **Phase 0 — Foundations**
-- Licence, `NOTICE`, community files and trademark policy.
+- Licence, `NOTICE`, community files and trademark policy (done).
 - OpenAPI contract, CI pipeline, monorepo layout.
 - Branding generator and the example brand **from day one**: brand-neutral code is cheap to keep but
   expensive to retrofit.
@@ -1063,15 +1064,14 @@ rights). This pairs naturally with white-labelling:
 
 ## 17. Open questions
 
-1. **Licence:** Apache-2.0 for everything (recommended), or AGPL-3.0 for the server?
-2. **Official builds:** will the project publish official apps in the stores and run the official relay?
+1. **Official builds:** will the project publish official apps in the stores and run the official relay?
    That needs an Apple Developer account ($99/year), a Google Play account ($25 one-time) and a small
    server for the relay. Without official builds, every self-hoster who wants iOS push would have to
    build their own branded app.
-3. **Is E2EE a launch requirement?** If yes, design the envelope format before the first public release so
+2. **Is E2EE a launch requirement?** If yes, design the envelope format before the first public release so
    it doesn't need a breaking change.
-4. **How much two-way messaging?** Simple replies fit the current design; full chat would add presence,
+3. **How much two-way messaging?** Simple replies fit the current design; full chat would add presence,
    receipts and much longer retention.
-5. **Team skills.** A Kotlin-heavy team should weigh Kotlin Multiplatform; a Rust-heavy team, Rust for the server.
-6. **Name.** Check trademark and app-store availability for "Flare" before publishing anything; the
+4. **Team skills.** A Kotlin-heavy team should weigh Kotlin Multiplatform; a Rust-heavy team, Rust for the server.
+5. **Name.** Check trademark and app-store availability for "Flare" before publishing anything; the
    trademark policy depends on the project actually being able to use the name.

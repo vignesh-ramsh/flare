@@ -1,0 +1,62 @@
+name: Bug report
+description: Something doesn't work as it should
+labels: ["bug"]
+body:
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - Server
+        - Push relay
+        - CLI
+        - Android app
+        - iOS app
+        - macOS app
+        - Windows app
+        - Linux app
+        - Web app
+        - Brand generator / builds
+        - Documentation
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Release version or commit of the affected component (and of the server, if it's an app issue).
+    validations:
+      required: true
+  - type: checkboxes
+    id: build
+    attributes:
+      label: Build
+      options:
+        - label: I'm using a rebranded build, and I've checked the problem also happens with the official build or upstream source.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Publish with `curl -d "hello" https://flare.example.com/test`
+        2. ...
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS and version, how the server is deployed (Docker, binary, Kubernetes), database, reverse proxy.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Relevant log output. Remove tokens, passwords and message contents first.
+      render: text

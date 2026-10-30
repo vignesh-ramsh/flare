@@ -1,0 +1,43 @@
+name: Design proposal
+description: Propose a bigger change (new component, breaking API or config change, governance or policy change)
+labels: ["proposal"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Proposals stay open for comments for at least 7 days before a decision (see GOVERNANCE.md).
+  - type: input
+    id: section
+    attributes:
+      label: Related section of docs/ARCHITECTURE.md
+      placeholder: "§5.3 Push credentials and the push relay"
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What you propose, in a few sentences.
+    validations:
+      required: true
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Motivation
+      description: Why it's needed, and who it helps.
+    validations:
+      required: true
+  - type: textarea
+    id: design
+    attributes:
+      label: Design
+      description: How it would work. Include API, configuration or data model changes.
+    validations:
+      required: true
+  - type: textarea
+    id: compatibility
+    attributes:
+      label: Compatibility and migration
+      description: Effect on existing servers, apps (including rebranded builds that lag behind) and self-hosters.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
