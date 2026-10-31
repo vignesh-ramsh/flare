@@ -62,13 +62,16 @@ the app starts or stores anything: it finds what only the real platform shows.
 ## What works on which platform
 
 CI (`.github/workflows/app.yml`) builds the app for each platform from a clean checkout and then checks
-the result: the program, bundle or package carries the name and identifier from the brand files. Only Linux
-has also been run (here, against the real server). Nothing has been run on a phone, a simulator, an
-emulator, a Mac or a Windows PC.
+the result: the program, bundle or package carries the name and identifier from the brand files. That
+includes the secure-storage plugin sign-in uses, on every platform. The Linux job also runs the whole app
+against the real server (`make app-integration`): first run, signing in, subscribing, a live message. That
+runner has no keyring, so it exercises the fallback where a sign-in is kept only until the app closes.
+Nothing has been run on a phone, a simulator, an emulator, a Mac or a Windows PC, so the platforms'
+real keychains and keyrings are untested.
 
 | | Builds in CI | Named and identified from the brand folder | Run |
 |---|---|---|---|
-| Linux | Yes | Yes: binary name, application ID and window title (`linux/brand.cmake`) | Yes, against the real server |
+| Linux | Yes | Yes: binary name, application ID and window title (`linux/brand.cmake`) | Yes, against the real server, in CI and here |
 | Android | Yes (debug APK) | Yes: package name and label checked in the APK | No |
 | iOS | Yes (simulator build) | Yes: bundle ID and display name checked in the app's Info.plist | No |
 | macOS | Yes (debug) | Yes: bundle ID and name checked, and the sandbox's network entitlement | No |
