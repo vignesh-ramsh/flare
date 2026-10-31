@@ -62,12 +62,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install the Linux build tools
-        run: sudo apt-get update && sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev
+        # libsecret is what the app keeps sign-ins in; xvfb gives the integration test a screen.
+        run: sudo apt-get update && sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libsecret-1-dev xvfb
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
       - uses: ./.github/actions/app-setup
       - name: Build
         run: cd app && flutter build linux --release
@@ -75,7 +80,10 @@ jobs:
         run: |
           binary=$(sed -n 's/^set(BRAND_BINARY_NAME "\(.*\)")/\1/p' app/linux/brand.cmake)
           test -x "app/build/linux/x64/release/bundle/$binary"
-
+      - name: Run the app against the real server
+        # The whole app on the real platform: first run, sign-in (this runner has no keyring, so
+        # the app must fall back to keeping the sign-in in memory), subscribing, a live message.
+        run: make app-integration
   android:
     runs-on: ubuntu-latest
     steps:

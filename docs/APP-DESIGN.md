@@ -62,6 +62,8 @@ One route tree (go_router) for every platform. `:server` is the server's host, `
 | `/topic/:server/:name` | Thread | page | main pane |
 | `/topic/:server/:name/info` | Topic info | page | details pane |
 | `/add` | Subscribe | bottom sheet | dialog |
+| `/add-server` | Add server | bottom sheet | dialog |
+| `/signin/:id` | Sign in to a server | bottom sheet | dialog |
 | `/inbox` | Inbox | page | list pane |
 | `/inbox/:id` | Message | page | details pane |
 | `/search?q=` | Search | full screen | field in the title bar |
@@ -75,7 +77,7 @@ One route tree (go_router) for every platform. `:server` is the server's host, `
 | `/settings/about` | About | page | details pane |
 | `/welcome` | Welcome (first run) | full screen | centred card |
 | `/welcome/server` | Choose a server | full screen | centred card |
-| `/welcome/account` | Sign in (optional) | full screen | centred card |
+| `/welcome/account?server=ID` | Sign in (optional) | full screen | centred card |
 | `/welcome/notifications` | Allow notifications | full screen | centred card |
 | `/subscribe/:host/:topic` | Subscribe link or QR code | opens the Subscribe sheet, filled in | opens the dialog |
 
@@ -187,7 +189,7 @@ screens never touch it.
 
 - **One WebSocket per server** (`/v1/ws`), held only while the server has topics to follow, and opened
   with the saved token as an `Authorization` header (there is no sign-in screen yet, so every connection
-  is anonymous for now). The app pings every 20 seconds, so a connection that died silently is noticed.
+  is anonymous until the user signs in, see below). The app pings every 20 seconds, so a connection that died silently is noticed.
 - **Catching up:** on every connect the app subscribes to each topic with `since` set to the topic's
   cursor, so it gets what it missed and nothing twice. A topic with no cursor yet starts from `all`: what
   the server still holds, a day by default, so a new subscription is not empty. Those messages count as
@@ -214,4 +216,35 @@ screens never touch it.
   not fetched again.
 - **Not built:** reconnecting when the network changes (the ping and returning to the app cover it for
   now), a connection while the app is closed (step 5), and sending messages (step 3).
+
+## As built: sign-in
+
+- **First run** (`/welcome`, three pages): what the app is, choose a server, sign in or skip. It is shown
+  while there is no server, and only then: removing the last server brings it back. A server is chosen by
+  typing its address, which the app checks with `GET /v1/config` before adding it, saying what it found
+  ("Found Acme Alerts. You need to sign in to read its topics.") or why it could not (no answer, too slow, a
+  certificate it does not accept, or an address that is not a server this app can use). A build locked to one
+  server always has it, skips these pages, and signs in later.
+- **Signing in** takes a user name and password, sent once (`POST /v1/auth/login`, Basic) for a token. What is
+  kept is the token, labelled with the app and the platform so it shows in the user's list of devices; the
+  password is not stored. The connection restarts at once with the new login, so private topics open without
+  waiting. On a plain-http server the form warns that the password will cross the network unencrypted and the
+  button reads "Sign in anyway" (decision 6).
+- **Where tokens live:** the platform's secure storage (Keychain on iOS and macOS, an encrypted store on
+  Android, the Credential Locker on Windows, the Secret Service on Linux), keyed by the server's address, never
+  in the database. Where the secure storage cannot be used, or never answers (a Linux desktop with no
+  keyring), the sign-in is kept in memory for the run and the server's page says it will not survive closing
+  the app. Every call to the secure storage has a 5 second limit, so a stuck keyring cannot hold the app up.
+- **Signing out** revokes the token on the server (`DELETE /v1/account/tokens/{id}`) and forgets it here. If
+  the server cannot be reached the sign-out still happens here and the app says the token is not revoked yet.
+  Removing a server signs out of it first, and deletes its topics and messages from the device.
+- **Where it shows up:** Settings > Servers lists each server with "Signed in as ..." or "Not signed in"; a
+  server's page has its address, the state of its connection, the account (sign in or out) and Remove. The red
+  bar for a refused login, and for a topic that needs a sign-in (error 40101), has a Sign in button; a topic
+  that is simply forbidden (40301) does not, since signing in again would not change it.
+- **Startup:** the app reads the saved sign-ins, makes sure a locked build has its server, and waits for the
+  servers before the first frame so the first-run check does not flash the wrong page; then it follows the
+  subscriptions.
+- **Not built:** the REST client has `config`, `login` and `revokeToken` only; changing a password,
+  listing the account's tokens, and creating accounts are done on the server's command line.
 

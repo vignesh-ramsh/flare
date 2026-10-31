@@ -1,6 +1,5 @@
 import 'package:app/core/db/database.dart';
 import 'package:app/data/topics_repository.dart';
-import 'package:app/net/connection_manager.dart';
 import 'package:app/net/providers.dart';
 import 'package:app/net/server_status.dart';
 import 'package:flutter/material.dart';
@@ -8,17 +7,7 @@ import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
 
 import '../helpers.dart';
-
-/// Counts calls to reconnectAll instead of touching the network.
-class SpyManager extends ConnectionManager {
-  SpyManager(TopicsRepository topics)
-    : super(topics: topics, factory: (_) => throw StateError('not used'));
-
-  int reconnects = 0;
-
-  @override
-  void reconnectAll() => reconnects++;
-}
+import 'spy_manager.dart';
 
 void main() {
   /// Runs the app with these connection statuses for the seeded server (ID 1).

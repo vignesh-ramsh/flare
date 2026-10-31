@@ -45,6 +45,13 @@ class ConnectionManager {
     }
   }
 
+  /// The saved sign-in for the server at [url] changed: reconnect it with the new login.
+  void loginChanged(String url) {
+    for (final entry in _connections.values) {
+      if (entry.url == url) entry.connection.loginChanged();
+    }
+  }
+
   void _apply(List<FollowedTopic> followed) {
     if (_closed) return;
     final byServer = <int, ({ServerRow server, Set<String> topics})>{};

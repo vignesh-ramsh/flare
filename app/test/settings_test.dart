@@ -10,7 +10,7 @@ void main() {
       await pumpApp(tester, db, width: 390, location: '/settings/servers');
 
       expect(find.text('example.com'), findsOneWidget);
-      expect(find.text('4 topics'), findsOneWidget);
+      expect(find.textContaining('4 topics'), findsOneWidget);
     });
 
     testApp('says what to do when there are no servers', (tester, db) async {

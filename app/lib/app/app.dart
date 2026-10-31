@@ -4,13 +4,24 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../brand/brand.g.dart';
+import '../data/providers.dart';
 import '../l10n/app_localizations.dart';
 import 'router.dart';
 import 'theme.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
-  final router = createRouter();
-  ref.onDispose(router.dispose);
+  // The first-run pages show while there is no server.
+  final firstRun = FirstRunGate();
+  ref.listen(
+    serversProvider,
+    (previous, next) => firstRun.update(next.value?.isEmpty ?? false),
+    fireImmediately: true,
+  );
+  final router = createRouter(firstRun: firstRun);
+  ref.onDispose(() {
+    router.dispose();
+    firstRun.dispose();
+  });
   return router;
 });
 

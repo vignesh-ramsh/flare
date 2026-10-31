@@ -20,7 +20,7 @@ the translations (Flutter's `gen-l10n`) and the database code (`build_runner`). 
 cd app && flutter run -d linux
 ```
 
-On Linux you also need `clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev`.
+On Linux you also need `clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libsecret-1-dev`. At run time the app keeps sign-ins in the desktop's keyring (GNOME Keyring, KWallet); where there is none, it says so and keeps a sign-in only until the app closes.
 
 To check your change the way CI does, run `make app-check`: formatting, analysis, the brand-name check and
 all the tests. Some tests run the app's connection code against the real Flare server; they are skipped
@@ -31,13 +31,18 @@ make server
 FLARE_SERVER_BIN=$PWD/server/bin/flare make app-check
 ```
 
+`make app-integration` goes further: it runs the whole app on Linux, nothing replaced, against the real
+server (first run, signing in, subscribing, a live message). It needs `xvfb`. Run it before changing how
+the app starts or stores anything: it finds what only the real platform shows.
+
 ## Where things are
 
 | Folder | What is there |
 |---|---|
 | `lib/app` | The app widget, theme, routes, window size classes and the adaptive shell (bottom bar, rail, sidebar) |
 | `lib/features` | One folder per screen: `topics`, `thread`, `add` (Subscribe), `inbox`, `settings` |
-| `lib/net` | The connection: protocol frames, backoff, one WebSocket per server, and the manager that follows the database |
+| `lib/net` | The connection (protocol frames, backoff, one WebSocket per server, the manager that follows the database) and the REST client |
+| `lib/auth` | Sign-in: the REST login, and the saved sign-ins kept in the platform's secure storage |
 | `lib/data` | Repositories over the database, the models screens read, and the Riverpod providers |
 | `lib/core/db` | The drift schema and how the database is opened |
 | `lib/ui` | Widgets several screens share: message card, priority badge, unread badge, logo, empty state |

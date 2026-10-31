@@ -11,7 +11,7 @@ RELEASE ?=
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
 .DEFAULT_GOAL := help
-.PHONY: help brand brand-test brand-check app-setup app-check server server-test api-lint
+.PHONY: help brand brand-test brand-check app-setup app-check app-integration server server-test api-lint
 
 help: ## Show this list
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z_-]+:.*## / {printf "  %-13s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -31,8 +31,11 @@ app-setup: brand ## Generate what the app needs to compile: brand files, transla
 
 app-check: brand-check ## Check formatting, analyze and test the Flutter app (set FLARE_SERVER_BIN to also test against the real server)
 	# Only the files in git: the generated ones (gitignored) are not formatted.
-	cd app && dart format --output=none --set-exit-if-changed $$(git ls-files --cached --others --exclude-standard -- 'lib/*.dart' 'test/*.dart')
+	cd app && dart format --output=none --set-exit-if-changed $$(git ls-files --cached --others --exclude-standard -- 'lib/*.dart' 'test/*.dart' 'integration_test/*.dart')
 	cd app && flutter analyze && flutter test
+
+app-integration: server ## Run the app on Linux against the real server (needs xvfb, libsecret and a built app)
+	cd app && HOME=$$(mktemp -d) FLARE_SERVER_BIN=$(abspath server/bin/flare) xvfb-run -a -s "-screen 0 1280x720x24" flutter test integration_test -d linux
 
 server: ## Build the Flare server and CLI into server/bin/flare
 	cd server && CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=$(VERSION)" -o bin/flare ./cmd/flare

@@ -2,9 +2,11 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../data/providers.dart';
 import '../../l10n/app_localizations.dart';
+import '../../net/protocol.dart';
 import '../../net/providers.dart';
 import '../../net/server_status.dart';
 
@@ -27,22 +29,27 @@ class ConnectionBanner extends ConsumerWidget {
         if ((serverId == null || entry.key == serverId) &&
             entry.value.needsAttention &&
             hosts.containsKey(entry.key))
-          (hosts[entry.key]!, entry.value),
+          (entry.key, hosts[entry.key]!, entry.value),
     ];
     if (troubled.isEmpty) return const SizedBox.shrink();
 
     return Column(
       children: [
-        for (final (host, status) in troubled)
-          _Notice(host: host, status: status),
+        for (final (id, host, status) in troubled)
+          _Notice(serverId: id, host: host, status: status),
       ],
     );
   }
 }
 
 class _Notice extends ConsumerStatefulWidget {
-  const _Notice({required this.host, required this.status});
+  const _Notice({
+    required this.serverId,
+    required this.host,
+    required this.status,
+  });
 
+  final int serverId;
   final String host;
   final ServerStatus status;
 
@@ -104,14 +111,24 @@ class _NoticeState extends ConsumerState<_Notice> {
                       ?.copyWith(color: scheme.onErrorContainer),
                 ),
               ),
-              TextButton(
-                style: TextButton.styleFrom(
-                  foregroundColor: scheme.onErrorContainer,
+              // Trying again cannot help when the server refused the saved sign-in.
+              if (status.state == LinkState.authFailed)
+                TextButton(
+                  style: TextButton.styleFrom(
+                    foregroundColor: scheme.onErrorContainer,
+                  ),
+                  onPressed: () => context.push('/signin/${widget.serverId}'),
+                  child: Text(l10n.bannerSignIn),
+                )
+              else
+                TextButton(
+                  style: TextButton.styleFrom(
+                    foregroundColor: scheme.onErrorContainer,
+                  ),
+                  onPressed: () =>
+                      ref.read(connectionManagerProvider).reconnectAll(),
+                  child: Text(l10n.connectionTryNow),
                 ),
-                onPressed: () =>
-                    ref.read(connectionManagerProvider).reconnectAll(),
-                child: Text(l10n.connectionTryNow),
-              ),
             ],
           ),
         ),
@@ -178,6 +195,14 @@ class TopicRefusedBanner extends ConsumerWidget {
                       ?.copyWith(color: scheme.onErrorContainer),
                 ),
               ),
+              if (code == ErrorCode.unauthorized)
+                TextButton(
+                  style: TextButton.styleFrom(
+                    foregroundColor: scheme.onErrorContainer,
+                  ),
+                  onPressed: () => context.push('/signin/$serverId'),
+                  child: Text(l10n.bannerSignIn),
+                ),
             ],
           ),
         ),

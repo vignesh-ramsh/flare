@@ -146,19 +146,23 @@ class _AddScreenState extends ConsumerState<AddScreen> {
               },
             ),
             const SizedBox(height: 24),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                TextButton(
-                  onPressed: () => _close(GoRouter.of(context)),
-                  child: Text(l10n.cancel),
-                ),
-                const SizedBox(width: 8),
-                FilledButton(
-                  onPressed: _busy ? null : _submit,
-                  child: Text(l10n.subscribe),
-                ),
-              ],
+            Align(
+              alignment: Alignment.centerRight,
+              child: Wrap(
+                alignment: WrapAlignment.end,
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  TextButton(
+                    onPressed: () => _close(GoRouter.of(context)),
+                    child: Text(l10n.cancel),
+                  ),
+                  FilledButton(
+                    onPressed: _busy ? null : _submit,
+                    child: Text(l10n.subscribe),
+                  ),
+                ],
+              ),
             ),
           ],
         ),

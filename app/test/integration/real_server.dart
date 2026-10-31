@@ -122,24 +122,12 @@ class RealServer {
     }
   }
 
+  /// The password every test user is created with.
+  static const testPassword = 'a long password for tests';
+
   /// Creates a user and an access token for them, with the server's own command line.
   Future<String> addUserWithToken(String name, {bool admin = false}) async {
-    final add = await Process.start(_bin, [
-      'user',
-      'add',
-      if (admin) '--admin',
-      '--database',
-      database,
-      name,
-    ]);
-    add.stdin.writeln('a long password for tests');
-    await add.stdin.close();
-    final addOut = await add.stdout.transform(utf8.decoder).join();
-    final addErr = await add.stderr.transform(utf8.decoder).join();
-    if (await add.exitCode != 0) {
-      throw StateError('user add failed: $addOut $addErr');
-    }
-
+    await addUser(name, admin: admin);
     final token = await Process.run(_bin, [
       'token',
       'add',
@@ -151,5 +139,24 @@ class RealServer {
       throw StateError('token add failed: ${token.stdout} ${token.stderr}');
     }
     return (token.stdout as String).trim();
+  }
+
+  /// Creates a user, with the server's own command line.
+  Future<void> addUser(String name, {bool admin = false}) async {
+    final add = await Process.start(_bin, [
+      'user',
+      'add',
+      if (admin) '--admin',
+      '--database',
+      database,
+      name,
+    ]);
+    add.stdin.writeln(testPassword);
+    await add.stdin.close();
+    final addOut = await add.stdout.transform(utf8.decoder).join();
+    final addErr = await add.stderr.transform(utf8.decoder).join();
+    if (await add.exitCode != 0) {
+      throw StateError('user add failed: $addOut $addErr');
+    }
   }
 }

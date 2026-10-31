@@ -50,6 +50,11 @@ final serversProvider = StreamProvider(
   (ref) => ref.watch(serversRepositoryProvider).watchAll(),
 );
 
+/// One server by its database ID, or null once it is removed.
+final serverProvider = StreamProvider.family<ServerRow?, int>(
+  (ref, id) => ref.watch(serversRepositoryProvider).watch(id),
+);
+
 final serversWithCountsProvider = StreamProvider(
   (ref) => ref.watch(serversRepositoryProvider).watchWithCounts(),
 );

@@ -1,5 +1,6 @@
 import 'package:app/app/app.dart';
 import 'package:app/app/router.dart';
+import 'package:app/auth/credentials.dart';
 import 'package:app/core/db/database.dart';
 import 'package:app/data/messages_repository.dart';
 import 'package:app/data/providers.dart';
@@ -9,9 +10,11 @@ import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
 
+import 'auth/memory_store.dart';
 import 'data/test_db.dart';
 
 /// The clock every widget test runs on: Wednesday 15 January 2025, noon.
@@ -107,6 +110,15 @@ Future<void> pumpApp(
   double textScale = 1,
   Brightness brightness = Brightness.light,
   List<Override> overrides = const [],
+
+  /// Where sign-ins are kept; a fresh in-memory store if not given.
+  SecretStore? secrets,
+
+  /// Sign-ins already saved, by server address.
+  Map<String, Credentials> signedIn = const {},
+
+  /// Use the app's own router, with the first-run pages, instead of one that starts at [location].
+  bool useAppRouter = false,
 }) async {
   tester.view.physicalSize = Size(width, height);
   tester.view.devicePixelRatio = 1;
@@ -123,13 +135,22 @@ Future<void> pumpApp(
       overrides: [
         databaseProvider.overrideWithValue(db),
         clockProvider.overrideWithValue(() => testNow),
-        routerProvider.overrideWithValue(router),
+        secretStoreProvider.overrideWithValue(secrets ?? MemorySecretStore()),
+        if (signedIn.isNotEmpty)
+          credentialsProvider.overrideWith(() => _Preloaded(signedIn)),
+        if (!useAppRouter) routerProvider.overrideWithValue(router),
         ...overrides,
       ],
       child: const App(),
     ),
   );
   await settle(tester);
+
+  // The app's own router starts at '/'; go where the test asked.
+  if (useAppRouter && location != '/') {
+    GoRouter.of(tester.element(find.byType(Scaffold).first)).go(location);
+    await settle(tester);
+  }
 }
 
 /// Lets database streams deliver and animations finish.
@@ -167,4 +188,14 @@ void testApp(
       await shutDown(tester, db);
     }
   });
+}
+
+/// A credentials controller that starts with sign-ins already loaded, as after launch.
+class _Preloaded extends CredentialsController {
+  _Preloaded(this._initial);
+
+  final Map<String, Credentials> _initial;
+
+  @override
+  CredentialsState build() => CredentialsState(byServer: _initial);
 }

@@ -98,6 +98,9 @@ class ServerConnection {
   Set<String> _topics = {};
   bool _closed = false;
   bool _authRejected = false;
+
+  /// The login changed: drop the connection and open a new one at once, without waiting.
+  bool _restart = false;
   Completer<void> _signal = Completer<void>();
   Future<void> _queue = Future<void>.value();
   _Session? _session;
@@ -142,6 +145,15 @@ class ServerConnection {
     _nudge();
   }
 
+  /// The saved sign-in changed (signed in, signed out, or a new token). Reconnects at once
+  /// with the new login, on a connection that is open, waiting or refused.
+  void loginChanged() {
+    _authRejected = false;
+    _restart = true;
+    _session?.stop(_End.dropped);
+    _nudge();
+  }
+
   Future<void> close() async {
     if (_closed) return;
     _closed = true;
@@ -168,6 +180,8 @@ class ServerConnection {
       final started = _now();
       final end = await _connectAndFollow();
       if (_closed) break;
+      // A new login: reconnect now, and do not count it as a failure.
+      if (_restart) continue;
 
       switch (end) {
         case _End.noTopics:
@@ -197,6 +211,7 @@ class ServerConnection {
     final WebSocketChannel channel;
     try {
       final token = await _token?.call();
+      _restart = false; // this attempt uses the current login
       channel = await _connector(
         _wsUri,
         {if (token != null) 'Authorization': 'Bearer $token'},
@@ -214,6 +229,8 @@ class ServerConnection {
 
     final session = _Session(channel);
     _session = session;
+    // The login changed while the connection was opening.
+    if (_restart) session.stop(_End.dropped);
     final subscription = channel.stream.listen(
       (data) {
         if (data is String) _enqueue(session, data);

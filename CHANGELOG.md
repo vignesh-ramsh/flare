@@ -61,3 +61,16 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   an emulator). Servers may be reached over plain http as well as https, as in ntfy; an address typed without
   a scheme means https and the app's examples show https. macOS gained the outgoing-network entitlement and
   Android the INTERNET permission in release builds, without which the app could not reach any server.
+
+- Sign-in: first-run pages (choose a server, which the app checks, then sign in or skip), a sign-in form
+  that warns before sending a password over plain http, a Servers screen with each server's account,
+  connection and Remove, and a Sign in button on the banners for a refused login or a topic that needs
+  one. Tokens are kept in the platform's secure storage, never in the database; where there is none (a Linux
+  desktop with no keyring) the app says so and keeps the sign-in until it closes. Signing out revokes the
+  token on the server. The REST client (`config`, `login`, `revokeToken`) is tested against the real server.
+- `make app-integration` runs the whole app on Linux, nothing replaced, against the real server. It found
+  two bugs no widget test could: a startup that never finished (Riverpod 3 only runs a provider while
+  something listens to it) and a program name Flutter's tool could not find.
+- The brand tool now keeps `set(BINARY_NAME "...")` in the Linux and Windows projects current, because
+  Flutter's tool reads that literal line to find the program to run.
+

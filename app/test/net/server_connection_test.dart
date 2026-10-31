@@ -383,6 +383,123 @@ void main() {
     );
   });
 
+  group('when the login changes', () {
+    test(
+      'reconnects at once with the new login, without counting a failure',
+      () async {
+        await h.init(['alerts']);
+        String? token;
+        final c = h.connect(topics: {'alerts'}, token: () async => token)
+          ..start();
+        await connected(c);
+        expect(
+          h.server.requestHeaders.single.containsKey('authorization'),
+          isFalse,
+        );
+
+        final states = <LinkState>[];
+        final sub = c.statuses.listen((s) => states.add(s.state));
+        token = 'flr_new';
+        c.loginChanged();
+        await eventually(
+          () => h.server.requestHeaders.length == 2,
+          reason: 'second connection',
+        );
+        await connected(c);
+        await sub.cancel();
+
+        expect(h.server.requestHeaders.last['authorization'], 'Bearer flr_new');
+        expect(states, isNot(contains(LinkState.waiting)));
+        expect(c.status.failures, 0);
+        await eventually(
+          () => h.server.sockets.length == 1,
+          reason: 'the old connection closed',
+        );
+      },
+    );
+
+    test('follows the topics again on the new connection', () async {
+      await h.init(['a', 'b']);
+      final c = h.connect(topics: {'a', 'b'})..start();
+      await connected(c);
+      await eventually(() => c.status.topics.length == 2);
+
+      c.loginChanged();
+      await eventually(
+        () =>
+            h.server.subscribesFor('a').length == 2 &&
+            h.server.subscribesFor('b').length == 2,
+      );
+    });
+
+    test('tries a refused login again at once', () async {
+      await h.init(['alerts']);
+      h.server.refuseUpgradeWith = 401;
+      var token = 'flr_old';
+      final c = h.connect(topics: {'alerts'}, token: () async => token)
+        ..start();
+      await eventually(() => c.status.state == LinkState.authFailed);
+
+      h.server.refuseUpgradeWith = null;
+      token = 'flr_new';
+      c.loginChanged();
+      await connected(c);
+      expect(h.server.requestHeaders.last['authorization'], 'Bearer flr_new');
+    });
+
+    test('does not wait out a retry delay', () async {
+      await h.init(['alerts']);
+      final port = h.server.port;
+      await h.server.stop();
+      final c = h.connect(topics: {'alerts'})..start();
+      await eventually(() => c.status.state == LinkState.waiting);
+
+      await h.server.start(port: port);
+      c.loginChanged();
+      await connected(c);
+    });
+
+    test('opens nothing when there is nothing to follow', () async {
+      await h.init([]);
+      final c = h.connect(topics: {})..start();
+      c.loginChanged();
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+
+      expect(h.server.attempts, 0);
+      expect(c.status.state, LinkState.idle);
+    });
+
+    test('uses the new login even when it changed while the connection was opening', () async {
+      await h.init(['alerts']);
+      var token = 'flr_old';
+      var signedIn = false;
+      late ServerConnection c;
+      c = h.connect(
+        topics: {'alerts'},
+        token: () async {
+          final current = token;
+          // The sign-in happens right after the token was read, before the socket is open.
+          if (!signedIn) {
+            signedIn = true;
+            Future<void>.delayed(Duration.zero, () {
+              token = 'flr_new';
+              c.loginChanged();
+            });
+          }
+          return current;
+        },
+      )..start();
+
+      await eventually(
+        () =>
+            h.server.requestHeaders.isNotEmpty &&
+            h.server.requestHeaders.last['authorization'] == 'Bearer flr_new',
+        reason: 'reconnected with the new login',
+      );
+      await connected(c);
+    });
+  });
+
   group('when the server says no', () {
     test('a topic it refuses is marked, and the others keep working', () async {
       await h.init(['secret', 'open']);

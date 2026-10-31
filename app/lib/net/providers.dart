@@ -1,6 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../auth/credentials.dart';
 import '../data/providers.dart';
+import 'api_client.dart';
 import 'connection_manager.dart';
 import 'server_connection.dart';
 import 'server_status.dart';
@@ -19,6 +21,9 @@ final connectionManagerProvider = Provider<ConnectionManager>((ref) {
       serverId: server.id,
       url: Uri.parse(server.url),
       store: store,
+      // Read when connecting, so a new sign-in is used by the next connection.
+      token: () async =>
+          ref.read(credentialsProvider).byServer[server.url]?.token,
     ),
   );
   ref.onDispose(manager.close);
@@ -32,4 +37,11 @@ final connectionStatusProvider = StreamProvider<Map<int, ServerStatus>>((
   final manager = ref.watch(connectionManagerProvider);
   yield manager.current;
   yield* manager.statuses;
+});
+
+/// The REST client.
+final apiProvider = Provider<ServerApi>((ref) {
+  final api = ServerApi();
+  ref.onDispose(api.close);
+  return api;
 });
