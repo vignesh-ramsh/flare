@@ -12,6 +12,7 @@ import 'package:app/desktop/desktop_services.dart' show windowActionsProvider;
 import 'package:app/desktop/window_actions.dart';
 import 'package:app/net/connection_lifecycle.dart';
 import 'package:app/net/providers.dart';
+import 'package:app/net/theme_sync.dart';
 import 'package:app/notifications/providers.dart';
 import 'package:app/notifications/viewing.dart';
 import 'package:flutter/foundation.dart';
@@ -442,8 +443,12 @@ void main() {
       tester,
     ) async {
       final spy = SpyManager(TopicsRepository(memoryDb()));
+      late _CountingSync sync;
       final container = ProviderContainer(
-        overrides: [connectionManagerProvider.overrideWithValue(spy)],
+        overrides: [
+          connectionManagerProvider.overrideWithValue(spy),
+          themeSyncProvider.overrideWith((ref) => sync = _CountingSync(ref)),
+        ],
       );
       addTearDown(container.dispose);
       await tester.pumpWidget(
@@ -463,6 +468,11 @@ void main() {
         spy.reconnects,
         1,
         reason: 'coming back also retries the connection',
+      );
+      expect(
+        sync.refreshes,
+        1,
+        reason: 'and asks the servers for any new themes',
       );
     });
   });
@@ -654,6 +664,18 @@ class _LeakySink extends RecordingSink {
     );
     throw StateError('no D-Bus session bus');
   }
+}
+
+/// A theme sync that only counts how often it was asked to refresh.
+class _CountingSync extends ThemeSync {
+  _CountingSync(super.ref);
+
+  int refreshes = 0;
+
+  @override
+  Future<void> refreshAll({
+    Duration within = const Duration(minutes: 1),
+  }) async => refreshes++;
 }
 
 class _FailingSink extends RecordingSink {

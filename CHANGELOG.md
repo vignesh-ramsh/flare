@@ -106,4 +106,8 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `GET /v1/themes` (with an `ETag`), next to a `themes` feature in `/v1/config`. Themes use the same unique
   names and colours as the app's own, and the same rule that text must stay readable. `GET /v1/themes/schema`
   describes the colours for an editor.
+- The app downloads each server's themes and keeps them on the device (database schema 4), asking again when it
+  starts, when a server is added, when it returns to the foreground and when Appearance opens; an unchanged list
+  is a 304. They are listed in Settings > Appearance under the server's name, work offline, and are dropped from
+  the choice if the server drops them.
 

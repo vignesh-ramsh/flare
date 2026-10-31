@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:app/app/themes/theme_spec.dart';
 import 'package:app/net/api_client.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -43,6 +44,172 @@ void main() {
     'limits': {'message_size': 4096, 'cache_duration': 86400},
     'auth': {'default_access': 'deny-all'},
   };
+
+  group('themes', () {
+    Map<String, Object> theme(
+      String name, {
+      String brightness = 'dark',
+      Map<String, String>? colors,
+    }) => {
+      'name': name,
+      'brightness': brightness,
+      'colors': colors ?? {'primary': '#8AB4F8'},
+      'created': 1,
+      'updated': 2,
+    };
+
+    test('asks for the public list, with no sign-in, and reads the themes and their tag', () async {
+      late http.Request seen;
+      final api = apiFor((r) async {
+        seen = r;
+        return http.Response(
+          jsonEncode({
+            'themes': [theme('Midnight'), theme('Paper', brightness: 'light')],
+          }),
+          200,
+          headers: {'etag': '"abc"'},
+        );
+      });
+      final answer = await api.themes(base);
+      expect(seen.method, 'GET');
+      expect(seen.url, Uri.parse('https://example.com/v1/themes'));
+      expect(seen.headers.containsKey('Authorization'), isFalse);
+      expect(seen.headers.containsKey('If-None-Match'), isFalse);
+      expect(answer.changed, isTrue);
+      expect(answer.tag, '"abc"');
+      expect(answer.themes.map((t) => t.name), ['Midnight', 'Paper']);
+      expect(answer.themes.first.colors.keys, [ThemeToken.primary]);
+    });
+
+    test(
+      'sends the tag it holds, and is told when nothing has changed',
+      () async {
+        late http.Request seen;
+        final api = apiFor((r) async {
+          seen = r;
+          return http.Response('', 304);
+        });
+        final answer = await api.themes(base, tag: '"abc"');
+        expect(seen.headers['If-None-Match'], '"abc"');
+        expect(answer.changed, isFalse);
+        expect(answer.themes, isEmpty);
+      },
+    );
+
+    test('works under a path prefix', () async {
+      late Uri seen;
+      final api = apiFor((r) async {
+        seen = r.url;
+        return json(200, {'themes': <Object>[]});
+      });
+      await api.themes(Uri.parse('https://example.com/flare/'));
+      expect(seen, Uri.parse('https://example.com/flare/v1/themes'));
+    });
+
+    test('skips a theme it cannot read and keeps the rest', () async {
+      final api = apiFor(
+        (r) async => json(200, {
+          'themes': [
+            theme('Good'),
+            theme('bad;name'),
+            theme('NoPrimary', colors: {'border': '#112233'}),
+            theme('BadColour', colors: {'primary': 'red'}),
+            'not a theme',
+            null,
+            theme('AlsoGood', brightness: 'light'),
+          ],
+        }),
+      );
+      expect((await api.themes(base)).themes.map((t) => t.name), [
+        'Good',
+        'AlsoGood',
+      ]);
+    });
+
+    test(
+      'ignores a colour it does not know, so a newer server still works',
+      () async {
+        final api = apiFor(
+          (r) async => json(200, {
+            'themes': [
+              theme(
+                'Future',
+                colors: {'primary': '#112233', 'sparkle': '#FFFFFF'},
+              ),
+            ],
+          }),
+        );
+        expect((await api.themes(base)).themes.single.colors.keys, [
+          ThemeToken.primary,
+        ]);
+      },
+    );
+
+    test('reads no more than the most, whatever the server sends', () async {
+      final api = apiFor(
+        (r) async => json(200, {
+          'themes': [
+            for (var i = 0; i < ServerApi.maxThemes + 30; i++) theme('T$i'),
+          ],
+        }),
+      );
+      expect((await api.themes(base)).themes, hasLength(ServerApi.maxThemes));
+    });
+
+    test('refuses an answer that is far too large', () async {
+      final api = apiFor(
+        (r) async => http.Response(
+          jsonEncode({
+            'themes': <Object>[],
+            'pad': 'x' * ServerApi.maxThemesBytes,
+          }),
+          200,
+        ),
+      );
+      await expectFailure(api.themes(base), ApiFailure.server);
+    });
+
+    test('says a server without the endpoint does not support it', () async {
+      await expectFailure(
+        apiFor(
+          (r) async => json(404, {'code': 40401, 'http': 404, 'error': 'no'}),
+        ).themes(base),
+        ApiFailure.notSupported,
+      );
+      await expectFailure(
+        apiFor(
+          (r) async => json(400, {
+            'code': 40003,
+            'http': 400,
+            'error': 'this server does not offer themes',
+          }),
+        ).themes(base),
+        ApiFailure.server,
+        code: 40003,
+      );
+    });
+
+    test('says what else went wrong', () async {
+      await expectFailure(
+        apiFor((r) async => throw http.ClientException('down')).themes(base),
+        ApiFailure.unreachable,
+      );
+      await expectFailure(
+        apiFor(
+          (r) async => json(500, {'code': 50001, 'http': 500, 'error': 'x'}),
+        ).themes(base),
+        ApiFailure.server,
+      );
+      await expectFailure(
+        apiFor((r) async => http.Response('<html>', 200)).themes(base),
+        ApiFailure.server,
+      );
+      await expectFailure(
+        apiFor((r) async => json(200, {'nothemes': 1})).themes(base),
+        ApiFailure.server,
+      );
+    });
+  });
 
   group('apiUri', () {
     test(

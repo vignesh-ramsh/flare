@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -8,17 +10,38 @@ import '../../app/themes/theme_registry.dart';
 import '../../app/themes/theme_resolver.dart';
 import '../../data/providers.dart';
 import '../../l10n/app_localizations.dart';
+import '../../net/theme_sync.dart';
 import 'theme_preview.dart';
 
 /// Settings > Appearance: follow the system's light or dark, or choose one of the themes the
 /// app was built with or a server offers. The choice applies at once and is kept.
-class AppearanceScreen extends ConsumerWidget {
+class AppearanceScreen extends ConsumerStatefulWidget {
   const AppearanceScreen({super.key});
 
+  @override
+  ConsumerState<AppearanceScreen> createState() => _AppearanceScreenState();
+}
+
+class _AppearanceScreenState extends ConsumerState<AppearanceScreen> {
   static const _system = 'system';
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  void initState() {
+    super.initState();
+    // A server may have added a theme since the app last asked.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        unawaited(
+          ref
+              .read(themeSyncProvider)
+              .refreshAll(within: const Duration(seconds: 10)),
+        );
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final theme = Theme.of(context);
     final available = ref.watch(availableThemesProvider);

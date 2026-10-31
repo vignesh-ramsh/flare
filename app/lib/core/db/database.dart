@@ -27,6 +27,9 @@ class Servers extends Table {
   /// Base URL without a trailing slash, for example `https://example.com`.
   TextColumn get url => text()();
 
+  /// The `ETag` of the last list of themes the server sent, to ask whether it has changed.
+  TextColumn get themesTag => text().nullable()();
+
   DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
 }
 
@@ -93,19 +96,39 @@ class AppSettings extends Table {
   Set<Column<Object>> get primaryKey => {key};
 }
 
-@DriftDatabase(tables: [Servers, Topics, Messages, AppSettings])
+/// A theme a server offers, kept so the list is there offline. [json] is the theme as the server
+/// sent it: `{"name", "brightness", "colors"}`.
+@DataClassName('ServerThemeRow')
+class ServerThemes extends Table {
+  IntColumn get serverId =>
+      integer().references(Servers, #id, onDelete: KeyAction.cascade)();
+
+  /// The name in lower case, so "Midnight" and "midnight" are one theme.
+  TextColumn get nameKey => text()();
+  TextColumn get json => text()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {serverId, nameKey};
+}
+
+@DriftDatabase(tables: [Servers, Topics, Messages, AppSettings, ServerThemes])
 class AppDatabase extends _$AppDatabase {
   AppDatabase(super.e);
 
   /// 1: servers, topics, messages. 2: the settings table. 3: which messages are the user's own.
+  /// 4: the themes servers offer.
   @override
-  int get schemaVersion => 3;
+  int get schemaVersion => 4;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
     onUpgrade: (migrator, from, to) async {
       if (from < 2) await migrator.createTable(appSettings);
       if (from < 3) await migrator.addColumn(messages, messages.mine);
+      if (from < 4) {
+        await migrator.addColumn(servers, servers.themesTag);
+        await migrator.createTable(serverThemes);
+      }
     },
     beforeOpen: (details) async {
       await customStatement('PRAGMA foreign_keys = ON');

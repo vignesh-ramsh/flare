@@ -32,9 +32,15 @@ final brandDefaultNamesProvider = Provider<({String light, String dark})>(
   (ref) => (light: brandDefaultLightTheme, dark: brandDefaultDarkTheme),
 );
 
-/// The themes each server offers, by server host. Filled in by the part that downloads them.
+final _serverThemesStreamProvider =
+    StreamProvider<Map<String, List<ThemeSpec>>>(
+      (ref) => ref.watch(serverThemesRepositoryProvider).watch(),
+    );
+
+/// The themes each server offers, by server host, as last downloaded. Empty until they are read
+/// from the device. Tests replace it.
 final serverThemesProvider = Provider<Map<String, List<ThemeSpec>>>(
-  (ref) => const {},
+  (ref) => ref.watch(_serverThemesStreamProvider).value ?? const {},
 );
 
 /// Every theme the user can choose from.

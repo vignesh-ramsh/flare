@@ -2,6 +2,10 @@ import 'package:app/app/theme.dart';
 import 'package:app/app/themes/theme_providers.dart';
 import 'package:app/app/themes/theme_spec.dart';
 import 'package:app/core/db/database.dart';
+import 'package:app/data/server_themes_repository.dart';
+import 'package:app/data/server_url.dart';
+import 'package:app/data/servers_repository.dart';
+import 'package:app/net/theme_sync.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
@@ -9,15 +13,30 @@ import 'package:flutter_test/flutter_test.dart';
 import 'helpers.dart';
 import 'themes/theme_fixtures.dart';
 
+/// A sync that only says it was asked, so no test reaches a network.
+class RecordingSync extends ThemeSync {
+  RecordingSync(super.ref);
+
+  final List<Duration> asked = [];
+
+  @override
+  Future<void> refreshAll({
+    Duration within = const Duration(minutes: 1),
+  }) async => asked.add(within);
+}
+
 void main() {
   const screen = '/settings/appearance';
+  late RecordingSync sync;
 
   List<Override> themes({
     List<ThemeSpec>? builtin,
-    Map<String, List<ThemeSpec>> servers = const {},
+    Map<String, List<ThemeSpec>>? servers = const {},
   }) => [
     builtinThemesProvider.overrideWithValue(builtin ?? [paper(), midnight()]),
-    serverThemesProvider.overrideWithValue(servers),
+    // Without `servers`, the themes come from the database like the app's own.
+    if (servers != null) serverThemesProvider.overrideWithValue(servers),
+    themeSyncProvider.overrideWith((ref) => sync = RecordingSync(ref)),
   ];
 
   Future<String?> saved(WidgetTester tester, AppDatabase db) async {
@@ -308,6 +327,154 @@ void main() {
       await settle(tester);
       expect(await saved(tester, db), 'server:example.com:paper');
     });
+  });
+
+  group('themes a server offers, kept on the device', () {
+    Future<void> cache(
+      WidgetTester tester,
+      AppDatabase db,
+      String host,
+      List<ThemeSpec> specs,
+    ) async {
+      await tester.runAsync(() async {
+        final server = await (db.select(
+          db.servers,
+        )..where((t) => t.host.equals(host))).getSingle();
+        await ServerThemesRepository(db).replace(server.id, specs, '"t"');
+      });
+    }
+
+    testApp('are listed under their server, from the database', (
+      tester,
+      db,
+    ) async {
+      await cache(tester, db, 'example.com', [fullTheme(name: 'Meadow')]);
+      await pumpApp(
+        tester,
+        db,
+        width: 390,
+        location: screen,
+        overrides: themes(servers: null),
+      );
+      expect(find.text('Themes from example.com'), findsOneWidget);
+      expect(
+        find.widgetWithText(RadioListTile<String>, 'Meadow'),
+        findsOneWidget,
+      );
+    });
+
+    testApp('are chosen, kept and used like the built-in ones', (
+      tester,
+      db,
+    ) async {
+      await cache(tester, db, 'example.com', [fullTheme(name: 'Meadow')]);
+      await pumpApp(
+        tester,
+        db,
+        width: 390,
+        location: screen,
+        overrides: themes(servers: null),
+      );
+      await choose(tester, 'Meadow');
+      expect(await saved(tester, db), 'server:example.com:meadow');
+      expect(pageColor(tester), const Color(0xFFF1F8E9));
+    });
+
+    testApp('ask the servers again when the screen opens, and not in a hurry', (
+      tester,
+      db,
+    ) async {
+      await pumpApp(
+        tester,
+        db,
+        width: 390,
+        location: screen,
+        overrides: themes(servers: null),
+      );
+      expect(sync.asked, [const Duration(seconds: 10)]);
+    });
+
+    testApp('appear while the screen is open, when a server\'s list arrives', (
+      tester,
+      db,
+    ) async {
+      await pumpApp(
+        tester,
+        db,
+        width: 390,
+        location: screen,
+        overrides: themes(servers: null),
+      );
+      expect(find.text('Meadow'), findsNothing);
+      await cache(tester, db, 'example.com', [fullTheme(name: 'Meadow')]);
+      await settle(tester);
+      expect(
+        find.widgetWithText(RadioListTile<String>, 'Meadow'),
+        findsOneWidget,
+      );
+    });
+
+    testApp('the chosen one going away leaves the app following the system', (
+      tester,
+      db,
+    ) async {
+      await cache(tester, db, 'example.com', [fullTheme(name: 'Meadow')]);
+      await pumpApp(
+        tester,
+        db,
+        width: 390,
+        location: screen,
+        overrides: themes(servers: null),
+      );
+      await choose(tester, 'Meadow');
+      expect(app(tester).themeMode, ThemeMode.light);
+
+      await cache(tester, db, 'example.com', const []);
+      await settle(tester);
+      expect(find.text('Meadow'), findsNothing);
+      expect(app(tester).themeMode, ThemeMode.system);
+      expect(selected(tester), 'system');
+    });
+
+    testApp('from two servers stay apart, and so do equal names', (
+      tester,
+      db,
+    ) async {
+      await tester.runAsync(
+        () =>
+            ServersRepository(db)
+                .add(ServerAddress.parse('https://other.example')!),
+      );
+      await cache(tester, db, 'example.com', [paper()]);
+      await cache(tester, db, 'other.example', [paper()]);
+      await pumpApp(
+        tester,
+        db,
+        width: 390,
+        location: screen,
+        overrides: themes(builtin: const [], servers: null),
+      );
+      expect(find.text('Themes from example.com'), findsOneWidget);
+      expect(find.text('Themes from other.example'), findsOneWidget);
+      expect(
+        find.widgetWithText(RadioListTile<String>, 'Paper'),
+        findsNWidgets(2),
+      );
+    });
+
+    testApp(
+      'with no server themes on the device, the app asks for none and shows none',
+      (tester, db) async {
+        await pumpApp(
+          tester,
+          db,
+          width: 390,
+          location: screen,
+          overrides: themes(servers: null),
+        );
+        expect(find.textContaining('Themes from'), findsNothing);
+      },
+    );
   });
 
   group('a theme that goes away', () {

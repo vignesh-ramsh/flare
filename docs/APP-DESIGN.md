@@ -370,6 +370,14 @@ text, and so on: 32 in all, listed with what each is for in [`api/theme-tokens.j
   theme animated "to" itself for 200 ms. Following a subscribe link on the first run could also strand the user
   on the welcome page when the first-run gate learned of the new server a moment late: it now remembers where
   the user was going and resumes it.
-- **Not built yet:** themes from servers (the app downloading and caching them), the Admin UI that adds them,
-  and picking colours in the app.
-
+- **Themes from servers.** A server offers its own themes (`GET /v1/themes`, public: a theme is only colours,
+  so it is available even where topics are private). The app asks each server when the app starts, when a
+  server is added, when the app comes back to the foreground and when Appearance opens, sending the list's
+  `ETag` back so an unchanged list is a 304. The themes are kept in the database (schema version 4), so
+  Appearance lists them offline, under "Themes from `<server>`", and removing a server removes its themes. A
+  server that cannot be reached keeps the list the app had; one without the endpoint (an older server) has
+  none. The app trusts a server no further than colours: it reads at most 100 themes of at most 512 KB, skips
+  any it cannot read, and never offers one whose text could not be read. If a server drops the theme the user
+  chose, the app follows the system again.
+- **Not built yet:** picking colours in the app itself. A server's themes are added in the Admin UI (a later
+  step).

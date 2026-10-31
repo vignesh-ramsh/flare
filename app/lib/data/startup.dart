@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../auth/credentials.dart';
 import '../net/providers.dart';
+import '../net/theme_sync.dart';
 import '../app/app.dart';
 import '../desktop/desktop_services.dart';
 import '../notifications/providers.dart';
@@ -42,6 +43,8 @@ Future<void> startServices(ProviderContainer container) async {
       .read(messagesRepositoryProvider)
       .pruneOlderThan(container.read(clockProvider)().subtract(defaultHistory));
   container.read(connectionManagerProvider).start();
+  // The servers' themes, in the background: the app does not wait for any server to start.
+  unawaited(container.read(themeSyncProvider).refreshAll());
   await startNotifications(container);
   await startDesktop(container);
 }

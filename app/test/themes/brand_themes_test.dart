@@ -135,6 +135,7 @@ void main() {
             dark: dark,
           )),
           themeChoiceProvider.overrideWithValue(const AsyncData(null)),
+          serverThemesProvider.overrideWithValue(const {}),
         ],
       );
       addTearDown(c.dispose);

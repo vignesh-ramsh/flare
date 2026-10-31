@@ -7,6 +7,7 @@ import '../core/db/connection.dart';
 import '../core/db/database.dart';
 import 'messages_repository.dart';
 import 'models.dart';
+import 'server_themes_repository.dart';
 import 'servers_repository.dart';
 import 'settings_repository.dart';
 import 'topics_repository.dart';
@@ -47,6 +48,10 @@ final topicsRepositoryProvider = Provider(
 );
 final messagesRepositoryProvider = Provider(
   (ref) => MessagesRepository(ref.watch(databaseProvider)),
+);
+
+final serverThemesRepositoryProvider = Provider(
+  (ref) => ServerThemesRepository(ref.watch(databaseProvider)),
 );
 
 final settingsRepositoryProvider = Provider(

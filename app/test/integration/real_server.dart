@@ -150,6 +150,28 @@ class RealServer {
     }
   }
 
+  /// A request to the admin API as the user whose [token] it is. Returns the status and the body.
+  Future<(int, String)> admin(
+    String method,
+    String path,
+    String token, [
+    Object? body,
+  ]) async {
+    final client = HttpClient();
+    try {
+      final request = await client.openUrl(method, url.replace(path: path));
+      request.headers.set('Authorization', 'Bearer $token');
+      if (body != null) {
+        request.headers.contentType = ContentType.json;
+        request.write(jsonEncode(body));
+      }
+      final response = await request.close();
+      return (response.statusCode, await utf8.decodeStream(response));
+    } finally {
+      client.close(force: true);
+    }
+  }
+
   /// The password every test user is created with.
   static const testPassword = 'a long password for tests';
 

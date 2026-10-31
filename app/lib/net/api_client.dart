@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import '../app/themes/theme_spec.dart';
 import 'protocol.dart';
 
 /// Why a request to a server failed, in the terms a user can act on.
@@ -88,6 +89,25 @@ class LoginResult {
   final String tokenId;
   final String user;
   final String role;
+}
+
+/// What a server answered when asked for its themes.
+class ThemesAnswer {
+  const ThemesAnswer({required this.themes, this.tag}) : changed = true;
+
+  /// Nothing has changed since the tag the app sent.
+  const ThemesAnswer.unchanged()
+    : themes = const [],
+      tag = null,
+      changed = false;
+
+  /// The themes, when [changed].
+  final List<ThemeSpec> themes;
+
+  /// The list's `ETag`, to send next time.
+  final String? tag;
+
+  final bool changed;
 }
 
 /// `https://host/prefix` and `/v1/config` make `https://host/prefix/v1/config`.
@@ -224,6 +244,44 @@ class ServerApi {
     if (stored is MessageFrame) return stored;
     throw _errorFrom(response, body);
   }
+
+  /// The themes a server offers (`GET /v1/themes`), which is public. Pass the [tag] of the list
+  /// already held: if nothing has changed the answer is [ThemesAnswer.unchanged]. A server that
+  /// has no themes endpoint (an older one) is [ApiFailure.notSupported].
+  ///
+  /// A theme that cannot be read is skipped, and no more than [maxThemes] are read, whatever the
+  /// server sends.
+  Future<ThemesAnswer> themes(Uri base, {String? tag}) async {
+    final response = await _send(
+      () => _client.get(
+        apiUri(base, '/v1/themes'),
+        headers: {..._json, 'If-None-Match': ?tag},
+      ),
+    );
+    if (response.statusCode == 304) return const ThemesAnswer.unchanged();
+    final body = _decode(response.body);
+    if (response.statusCode != 200 ||
+        response.bodyBytes.length > maxThemesBytes ||
+        body is! Map<String, dynamic> ||
+        body['themes'] is! List) {
+      throw _errorFrom(response, body);
+    }
+    final themes = <ThemeSpec>[];
+    for (final entry in (body['themes'] as List).take(maxThemes)) {
+      try {
+        themes.add(ThemeSpec.fromJson(entry));
+      } on ThemeFormatException {
+        continue;
+      }
+    }
+    return ThemesAnswer(themes: themes, tag: response.headers['etag']);
+  }
+
+  /// The most themes read from one server.
+  static const maxThemes = 100;
+
+  /// The largest list of themes read: 100 themes of 32 colours is about 150 KB.
+  static const maxThemesBytes = 512 * 1024;
 
   void close() => _client.close();
 
