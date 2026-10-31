@@ -14,8 +14,9 @@ curl -d "Backup finished" https://flare.example.com/backups
   UnifiedPush, FCM and APNs, directly or through a push relay (`flare relay`); rate limits, and an official
   relay for the official apps, are still to come.
 - **Apps:** the Flutter app ([app/README.md](app/README.md)) is started. Its layouts for phones, tablets and
-  desktops, its on-device database and its topic list work, and it runs on Linux; it does not connect to a
-  server yet, so it is not usable for receiving messages.
+  desktops, its on-device database, its topic list and its connection to a server work, and it runs on
+  Linux: it receives and keeps messages for the topics you subscribe to. Sign-in, notifications and
+  sending are still to come.
 - **Rebrand it:** set your own app name, logo, colours and identifiers in one brand folder and rebuild
   the apps. No source changes needed. See [brand/README.md](brand/README.md).
 

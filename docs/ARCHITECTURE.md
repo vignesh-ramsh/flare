@@ -586,7 +586,7 @@ flowchart TB
   STATE["State: Riverpod"]
   REPO["Repositories<br/>subscriptions, messages, servers, accounts"]
   CONN["Connection manager<br/>one multiplexed WebSocket per server,<br/>backoff + jitter, network-change aware"]
-  REST["REST client (dio)<br/>generated from OpenAPI"]
+  REST["REST client<br/>(arrives with sign-in)"]
   LDB[("Local DB: drift / SQLite<br/>message history, cursors")]
   SEC[("Secure storage<br/>tokens, E2EE keys")]
   BRAND["Brand constants<br/>generated brand.g.dart"]
@@ -610,6 +610,9 @@ The screens, the window size classes, the routes and what each platform does are
 [APP-DESIGN.md](APP-DESIGN.md); the code is in [`app/`](../app/README.md).
 
 - **One codebase** (Dart/Flutter) for the UI and the business logic on all five OSes.
+- **Connection:** `web_socket_channel` for the socket; messages are stored in order and each topic's
+  cursor is the resume point, so a reconnect catches up without gaps or repeats (details in
+  [APP-DESIGN.md](APP-DESIGN.md#as-built-the-connection)).
 - **Thin native modules** only where the OS demands it: the Android always-on service and FCM handler
   (Kotlin), the iOS Notification Service Extension and APNs registration (Swift). They share the
   SQLite file (WAL mode) and secure storage with the Flutter side.
@@ -1162,8 +1165,9 @@ rights). This pairs naturally with white-labelling:
 - Push notifications, server side: device registration, FCM, APNs, Web Push and UnifiedPush, with a durable
   queue and retries (**done**, FCM and APNs only against fakes), and the relay (`flare relay`, **done**).
 - Flutter app skeleton (**done**): adaptive layouts for four window sizes, the on-device database, the
-  topic list, thread and Subscribe screens, built and run on Linux. Still to do: the connection to the
-  server, first run and sign-in, notifications.
+  topic list, thread and Subscribe screens, and the connection to the server (one WebSocket per server,
+  catch-up, backoff; tested against the real server), built and run on Linux. Still to do: sending, first
+  run and sign-in, notifications.
 - Android app (FCM + instant-delivery mode) and desktop apps (tray + native notifications).
 
 **Phase 2 — Full platform coverage**

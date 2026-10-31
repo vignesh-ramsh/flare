@@ -49,5 +49,10 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   with a details pane); an on-device database (drift) with subscriptions, messages, cursors and read
   markers; the topic list, thread, Subscribe, Inbox and Settings screens; English translations with
   `{appName}` in place of the name. Built and run on Linux, which is also named from the brand files; the
-  other platforms are created but not wired to the brand yet. It does not connect to a server yet. `make
+  other platforms are created but not wired to the brand yet. `make
   app-setup` and `make app-check` set it up and check it, and CI runs them.
+- The app's connection to a server (`app/lib/net`): one WebSocket per server, resuming each topic from its
+  cursor so a reconnect catches up without gaps or repeats, retrying with a growing, randomised wait, and
+  telling the user when a server cannot be reached or refuses the saved sign-in or a topic. The app now
+  receives and keeps messages. Tested against an in-process fake and against the real server (CI builds
+  it); there is no sign-in screen yet, so connections are anonymous.

@@ -3,11 +3,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../app/window_class.dart';
+import '../../core/db/database.dart';
 import '../../data/models.dart';
 import '../../data/providers.dart';
 import '../../l10n/app_localizations.dart';
 import '../../ui/empty_state.dart';
 import '../../ui/message_card.dart';
+import '../topics/connection_banner.dart';
 
 /// Whether the large layout shows the details pane beside the thread.
 class DetailsVisible extends Notifier<bool> {
@@ -143,35 +145,50 @@ class _ThreadState extends ConsumerState<_Thread> {
 
     return Scaffold(
       appBar: widget.appBar,
-      body: messages.when(
-        loading: () => const SizedBox.shrink(),
-        error: (error, stack) => Center(child: Text('$error')),
-        data: (list) {
-          if (list.isEmpty) {
-            return EmptyState(
-              icon: Icons.chat_bubble_outline,
-              title: l10n.threadEmpty,
-            );
-          }
-          return Align(
-            alignment: Alignment.topCenter,
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 720),
-              child: SelectionArea(
-                child: ListView.separated(
-                  reverse: true,
-                  padding: const EdgeInsets.all(16),
-                  itemCount: list.length,
-                  separatorBuilder: (context, index) =>
-                      const SizedBox(height: 8),
-                  itemBuilder: (context, index) =>
-                      MessageCard(message: list[index]),
-                ),
+      body: Column(
+        children: [
+          // Where the list is beside the thread (expanded, large) it already says so.
+          if (!context.windowClass.hasTwoPanes)
+            ConnectionBanner(serverId: topic.serverId),
+          TopicRefusedBanner(serverId: topic.serverId, topic: topic.name),
+          Expanded(child: _messages(context, l10n, messages)),
+        ],
+      ),
+    );
+  }
+
+  Widget _messages(
+    BuildContext context,
+    AppLocalizations l10n,
+    AsyncValue<List<MessageRow>> messages,
+  ) {
+    return messages.when(
+      loading: () => const SizedBox.shrink(),
+      error: (error, stack) => Center(child: Text('$error')),
+      data: (list) {
+        if (list.isEmpty) {
+          return EmptyState(
+            icon: Icons.chat_bubble_outline,
+            title: l10n.threadEmpty,
+          );
+        }
+        return Align(
+          alignment: Alignment.topCenter,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 720),
+            child: SelectionArea(
+              child: ListView.separated(
+                reverse: true,
+                padding: const EdgeInsets.all(16),
+                itemCount: list.length,
+                separatorBuilder: (context, index) => const SizedBox(height: 8),
+                itemBuilder: (context, index) =>
+                    MessageCard(message: list[index]),
               ),
             ),
-          );
-        },
-      ),
+          ),
+        );
+      },
     );
   }
 }

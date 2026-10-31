@@ -8,6 +8,7 @@ import '../../data/models.dart';
 import '../../data/providers.dart';
 import '../../l10n/app_localizations.dart';
 import '../../ui/empty_state.dart';
+import 'connection_banner.dart';
 import 'topic_tile.dart';
 
 /// The list of subscriptions, with the server filter and the Subscribe button.
@@ -64,6 +65,7 @@ class TopicListPane extends ConsumerWidget {
           ];
           return Column(
             children: [
+              const ConnectionBanner(),
               if (servers.length > 1)
                 SizedBox(
                   height: 56,

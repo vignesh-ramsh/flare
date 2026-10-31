@@ -1,7 +1,8 @@
 # The app
 
 The Flutter app for Android, iOS, Windows, macOS and Linux (the web app comes later). It is a skeleton:
-the layouts, the on-device database and the topic list work, and the app does not connect to a server yet.
+the layouts, the on-device database, the topic list and the connection to a server work, so it receives and
+keeps messages for the topics you subscribe to; sign-in, notifications and sending are still to come.
 What it shows and why is in [docs/APP-DESIGN.md](../docs/APP-DESIGN.md).
 
 ## Set up and run
@@ -22,7 +23,13 @@ cd app && flutter run -d linux
 On Linux you also need `clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev`.
 
 To check your change the way CI does, run `make app-check`: formatting, analysis, the brand-name check and
-all the tests.
+all the tests. Some tests run the app's connection code against the real Flare server; they are skipped
+unless you build it and say where it is:
+
+```bash
+make server
+FLARE_SERVER_BIN=$PWD/server/bin/flare make app-check
+```
 
 ## Where things are
 
@@ -30,6 +37,7 @@ all the tests.
 |---|---|
 | `lib/app` | The app widget, theme, routes, window size classes and the adaptive shell (bottom bar, rail, sidebar) |
 | `lib/features` | One folder per screen: `topics`, `thread`, `add` (Subscribe), `inbox`, `settings` |
+| `lib/net` | The connection: protocol frames, backoff, one WebSocket per server, and the manager that follows the database |
 | `lib/data` | Repositories over the database, the models screens read, and the Riverpod providers |
 | `lib/core/db` | The drift schema and how the database is opened |
 | `lib/ui` | Widgets several screens share: message card, priority badge, unread badge, logo, empty state |

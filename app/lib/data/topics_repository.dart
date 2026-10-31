@@ -53,6 +53,22 @@ class TopicsRepository {
         .map((rows) => rows.isEmpty ? null : _summaryFrom(rows.first));
   }
 
+  /// Every subscription with its server, for the connections to follow.
+  Stream<List<FollowedTopic>> watchFollowed() {
+    final query = _db.select(_db.topics).join([
+      innerJoin(_db.servers, _db.servers.id.equalsExp(_db.topics.serverId)),
+    ]);
+    return query.watch().map(
+      (rows) => [
+        for (final row in rows)
+          FollowedTopic(
+            server: row.readTable(_db.servers),
+            topic: row.readTable(_db.topics).name,
+          ),
+      ],
+    );
+  }
+
   /// Subscribes to [topic] on [server], adding the server if it is new.
   /// [topic] must pass [isValidTopic].
   Future<SubscribeResult> subscribe(ServerAddress server, String topic) {
@@ -81,6 +97,15 @@ class TopicsRepository {
           .insert(TopicsCompanion.insert(serverId: serverId, name: topic));
       return SubscribeResult.added;
     });
+  }
+
+  /// The ID of the newest message received on the topic, or null if none yet.
+  Future<String?> cursorOf(int serverId, String name) async {
+    final row =
+        await (_db.select(_db.topics)
+              ..where((t) => t.serverId.equals(serverId) & t.name.equals(name)))
+            .getSingleOrNull();
+    return row?.cursor;
   }
 
   /// Moves the topic's read marker to its newest message. It never moves back.

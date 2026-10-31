@@ -140,7 +140,7 @@ fails the build if one does.
 ## Build order
 
 1. **Skeleton** (done, see below): brand wiring, theme, router, adaptive shell, local database, Topics.
-2. **Connection**: the API client from `api/openapi.yaml`, one WebSocket per server, catch-up, backoff.
+2. **Connection** (done, see below): one WebSocket per server, catch-up from the cursor, backoff, status. The REST client comes with step 4, when sign-in needs it.
 3. **Thread and Subscribe**: reading and replying, the Subscribe sheet and dialog, deep links.
 4. **First run, Servers, Settings**: sign-in, tokens, the delivery choice.
 5. **Notifications**: Android channels and service, the iOS extension, desktop tray and toasts, Web Push.
@@ -154,9 +154,9 @@ What exists, so the page and the code agree.
   `/settings/about`. The rest of the table (topic info, a single message, search, the other settings pages,
   the first-run flow and subscribe links) come with the steps that need them. A link straight to `/add`
   opens the sheet with nothing under it, and closing it goes to Topics.
-- **Subscribe saves on the device only.** It checks the server address and the topic name, and adds the
-  subscription to the local database. Nothing connects to the server until step 2, so no messages arrive
-  yet; the Thread, Inbox and unread counts are driven by whatever the database holds.
+- **Subscribe saves the subscription in the local database.** It checks the server address and the topic
+  name; the connection (below) then follows it. The Thread, Inbox and unread counts are driven by what the
+  database holds.
 - **Reading:** a thread that is on screen moves the topic's read marker to its newest message, so unread
   counts clear when it is opened and again when a message arrives while it is open.
 - **Layouts:** the four window classes are built and tested at 390, 700, 1000 and 1400 dp, in light and
@@ -169,4 +169,39 @@ What exists, so the page and the code agree.
 - **Data location:** the database is in the application-support folder, not the user's Documents.
 - **Not wired yet:** Android, iOS, macOS and Windows still use Flutter's default name and identifiers; only
   Linux is wired to the brand output (see [app/README.md](../app/README.md)).
+
+## As built: the connection
+
+`lib/net` follows the subscriptions in the database over the network and writes what arrives into it. The
+screens never touch it.
+
+- **One WebSocket per server** (`/v1/ws`), held only while the server has topics to follow, and opened
+  with the saved token as an `Authorization` header (there is no sign-in screen yet, so every connection
+  is anonymous for now). The app pings every 20 seconds, so a connection that died silently is noticed.
+- **Catching up:** on every connect the app subscribes to each topic with `since` set to the topic's
+  cursor, so it gets what it missed and nothing twice. A topic with no cursor yet starts from `all`: what
+  the server still holds, a day by default, so a new subscription is not empty. Those messages count as
+  unread. A message that arrives twice (live and in the backlog) is stored once.
+- **Order:** messages are stored one at a time as they arrive, and a dropped connection finishes storing
+  what it had before reconnecting, so the cursor never moves past a message that was not stored.
+- **Retrying:** after a failure the wait doubles from 1 second up to 60, with half of each wait random, so
+  a restarted server is not hit by every app at once. A connection that lasted 10 seconds counts as
+  healthy, and the next retry is quick again; one that drops straight away keeps the wait growing.
+  Returning to the app skips the wait.
+- **What the server says no to:**
+
+  | Server's answer | The app |
+  |---|---|
+  | 401 when connecting, a close with status 1008, or error 40102 | Stops retrying and says the saved sign-in was not accepted, until the login changes |
+  | Error 40101 or 40301 on a topic | Keeps the connection, marks that topic, and says in the thread to sign in or that there is no access; tries it again on the next connection |
+  | Error 50002 (too slow) | Follows the topic again from the cursor after a second |
+  | Anything else, or no answer | Retries with the wait above |
+
+- **What the user sees:** a red bar with "Try now" when a server cannot be reached or refused the login:
+  at the top of the topic list, in the sidebar of the large layout, and in a thread when the list is hidden.
+  A topic the server refused shows its own bar in the thread. Nothing is shown while connecting.
+- **History:** the app deletes messages older than 30 days at launch. The cursor is kept, so they are
+  not fetched again.
+- **Not built:** reconnecting when the network changes (the ping and returning to the app cover it for
+  now), a connection while the app is closed (step 5), and sending messages (step 3).
 

@@ -85,3 +85,11 @@ class InboxItem {
 typedef TopicRef = ({String host, String name});
 
 enum SubscribeResult { added, alreadySubscribed }
+
+/// A subscription and the server it is on.
+class FollowedTopic {
+  const FollowedTopic({required this.server, required this.topic});
+
+  final ServerRow server;
+  final String topic;
+}

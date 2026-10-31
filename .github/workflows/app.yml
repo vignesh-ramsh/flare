@@ -1,7 +1,8 @@
 name: App
 
-# Checks the Flutter app: formatting, analysis and tests, then builds the Linux desktop app
-# with the official brand. The other platforms are not built here yet; see app/README.md.
+# Checks the Flutter app: formatting, analysis and tests, including tests of its connection
+# code against the real Flare server (built here), then builds the Linux desktop app with
+# the official brand. The other platforms are not built here yet; see app/README.md.
 
 on:
   push:
@@ -9,12 +10,16 @@ on:
     paths:
       - "app/**"
       - "brand/**"
+      - "server/**"
+      - "api/**"
       - "Makefile"
       - ".github/workflows/app.yml"
   pull_request:
     paths:
       - "app/**"
       - "brand/**"
+      - "server/**"
+      - "api/**"
       - "Makefile"
       - ".github/workflows/app.yml"
 
@@ -35,10 +40,18 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+      - name: Build the server the connection tests run against
+        run: make server
       - name: Generate the brand files, translations and database code
         run: make app-setup
       - name: Check formatting, analyze and test
         run: make app-check
+        env:
+          FLARE_SERVER_BIN: ${{ github.workspace }}/server/bin/flare
 
   linux:
     runs-on: ubuntu-latest

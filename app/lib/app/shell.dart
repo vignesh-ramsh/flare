@@ -6,6 +6,7 @@ import '../brand/brand.g.dart';
 import '../data/models.dart';
 import '../data/providers.dart';
 import '../l10n/app_localizations.dart';
+import '../features/topics/connection_banner.dart';
 import '../ui/brand_logo.dart';
 import '../ui/unread_badge.dart';
 import 'theme.dart';
@@ -199,6 +200,7 @@ class _Sidebar extends ConsumerWidget {
                   label: Text(l10n.subscribe),
                 ),
               ),
+              const ConnectionBanner(),
               Expanded(
                 child: ListView(
                   padding: const EdgeInsets.symmetric(horizontal: 8),

@@ -29,7 +29,7 @@ brand-check: ## Fail if app code or translations contain the project name
 app-setup: brand ## Generate what the app needs to compile: brand files, translations, database code
 	cd app && flutter pub get && dart run build_runner build
 
-app-check: brand-check ## Check formatting, analyze and test the Flutter app (run app-setup first)
+app-check: brand-check ## Check formatting, analyze and test the Flutter app (set FLARE_SERVER_BIN to also test against the real server)
 	# Only the files in git: the generated ones (gitignored) are not formatted.
 	cd app && dart format --output=none --set-exit-if-changed $$(git ls-files --cached --others --exclude-standard -- 'lib/*.dart' 'test/*.dart')
 	cd app && flutter analyze && flutter test
