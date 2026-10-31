@@ -1,10 +1,12 @@
 name: App
 
 # Checks the Flutter app: formatting, analysis and tests, including tests of its connection
-# code against the real Flare server (built here), then builds the Linux desktop app with
-# the official brand. The other platforms are not built here yet; see app/README.md.
+# code against the real Flare server (built here). Then builds the app for every platform
+# with the official brand and checks that each build carries the brand's name and identifier.
+# Run it by hand from the Actions tab (or the API) on any branch.
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
     paths:
@@ -14,6 +16,7 @@ on:
       - "api/**"
       - "Makefile"
       - ".github/workflows/app.yml"
+      - ".github/actions/app-setup/**"
   pull_request:
     paths:
       - "app/**"
@@ -22,6 +25,7 @@ on:
       - "api/**"
       - "Makefile"
       - ".github/workflows/app.yml"
+      - ".github/actions/app-setup/**"
 
 permissions:
   contents: read
@@ -64,7 +68,106 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
-      - name: Generate the brand files, translations and database code
-        run: make app-setup
+      - uses: ./.github/actions/app-setup
       - name: Build
         run: cd app && flutter build linux --release
+      - name: Check that the program is named from the brand
+        run: |
+          binary=$(sed -n 's/^set(BRAND_BINARY_NAME "\(.*\)")/\1/p' app/linux/brand.cmake)
+          test -x "app/build/linux/x64/release/bundle/$binary"
+
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - uses: ./.github/actions/app-setup
+      - name: Build
+        run: cd app && flutter build apk --debug
+      - name: Check that the app is named from the brand
+        run: |
+          id=$(sed -n 's/^applicationId=//p' app/android/brand.properties)
+          name=$(sed -n 's/^appName=//p' app/android/brand.properties)
+          aapt2=$(ls "$ANDROID_HOME"/build-tools/*/aapt2 | sort -V | tail -1)
+          badging=$("$aapt2" dump badging app/build/app/outputs/flutter-apk/app-debug.apk)
+          echo "$badging" | grep -E "^(package|application-label):"
+          echo "$badging" | grep -q "^package: name='$id'"
+          echo "$badging" | grep -q "^application-label:'$name'"
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - uses: ./.github/actions/app-setup
+      - name: Build
+        run: cd app && flutter build macos --debug
+      - name: Check that the app is named from the brand
+        run: |
+          xcconfig=app/macos/Runner/Configs/Brand.xcconfig
+          name=$(sed -n 's/^BRAND_APP_NAME = //p' "$xcconfig")
+          id=$(sed -n 's/^BRAND_BUNDLE_ID = //p' "$xcconfig")
+          bundle="app/build/macos/Build/Products/Debug/$name.app"
+          test -d "$bundle"
+          test "$(plutil -extract CFBundleIdentifier raw "$bundle/Contents/Info.plist")" = "$id"
+          test "$(plutil -extract CFBundleName raw "$bundle/Contents/Info.plist")" = "$name"
+          # The sandbox must allow outgoing connections, or the app cannot reach any server.
+          codesign -d --entitlements - "$bundle" 2>&1 | grep -q "com.apple.security.network.client"
+
+  ios:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - uses: ./.github/actions/app-setup
+      - name: Build for the simulator
+        run: cd app && flutter build ios --simulator --debug
+      - name: Check that the app is named from the brand
+        run: |
+          xcconfig=app/ios/Flutter/Brand.xcconfig
+          name=$(sed -n 's/^BRAND_APP_NAME = //p' "$xcconfig")
+          id=$(sed -n 's/^BRAND_BUNDLE_ID = //p' "$xcconfig")
+          plist=app/build/ios/iphonesimulator/Runner.app/Info.plist
+          test "$(plutil -extract CFBundleIdentifier raw "$plist")" = "$id"
+          test "$(plutil -extract CFBundleDisplayName raw "$plist")" = "$name"
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - uses: ./.github/actions/app-setup
+      - name: Build
+        run: cd app && flutter build windows --debug
+      - name: Check that the program is named from the brand
+        shell: pwsh
+        run: |
+          $brand = Get-Content app/windows/brand.cmake -Raw
+          $bin = [regex]::Match($brand, 'BRAND_BINARY_NAME "(.*)"').Groups[1].Value
+          $name = [regex]::Match($brand, 'BRAND_APP_NAME "(.*)"').Groups[1].Value
+          $exe = "app/build/windows/x64/runner/Debug/$bin.exe"
+          if (-not (Test-Path $exe)) { throw "missing $exe" }
+          $info = (Get-Item $exe).VersionInfo
+          Write-Host "ProductName=$($info.ProductName) InternalName=$($info.InternalName)"
+          if ($info.ProductName -ne $name) { throw "ProductName is '$($info.ProductName)', expected '$name'" }
+          if ($info.InternalName -ne $bin) { throw "InternalName is '$($info.InternalName)', expected '$bin'" }

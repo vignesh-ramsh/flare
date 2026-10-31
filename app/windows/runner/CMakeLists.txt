@@ -27,6 +27,11 @@ target_compile_definitions(${BINARY_NAME} PRIVATE "FLUTTER_VERSION_MINOR=${FLUTT
 target_compile_definitions(${BINARY_NAME} PRIVATE "FLUTTER_VERSION_PATCH=${FLUTTER_VERSION_PATCH}")
 target_compile_definitions(${BINARY_NAME} PRIVATE "FLUTTER_VERSION_BUILD=${FLUTTER_VERSION_BUILD}")
 
+# Add preprocessor definitions for the brand: the window title and the version resource.
+target_compile_definitions(${BINARY_NAME} PRIVATE "BRAND_APP_NAME=\"${BRAND_APP_NAME}\"")
+target_compile_definitions(${BINARY_NAME} PRIVATE "BRAND_BINARY_NAME=\"${BRAND_BINARY_NAME}\"")
+target_compile_definitions(${BINARY_NAME} PRIVATE "BRAND_DESCRIPTION=\"${BRAND_DESCRIPTION}\"")
+
 # Disable Windows macros that collide with C++ standard library functions.
 target_compile_definitions(${BINARY_NAME} PRIVATE "NOMINMAX")
 

@@ -1,3 +1,13 @@
+import java.util.Properties
+
+// The app's name, application ID and URL scheme come from the brand folder: `make brand`
+// writes android/brand.properties. Never edit them here to rebrand the app.
+val brand = Properties().apply {
+    val file = rootProject.file("brand.properties")
+    require(file.exists()) { "android/brand.properties is missing: run `make brand` from the repository root." }
+    file.inputStream().use { load(it) }
+}
+
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
@@ -15,8 +25,9 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.example.app"
+        applicationId = brand.getProperty("applicationId")
+        resValue("string", "app_name", brand.getProperty("appName"))
+        manifestPlaceholders["urlScheme"] = brand.getProperty("urlScheme")
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
@@ -27,6 +38,13 @@ android {
         // flag during build.
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+    }
+
+    // The launcher, adaptive and notification icons and the colours `make brand` writes.
+    sourceSets {
+        getByName("main") {
+            res.srcDir("src/brand/res")
+        }
     }
 
     buildTypes {

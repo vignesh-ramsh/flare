@@ -2,9 +2,11 @@
 cmake_minimum_required(VERSION 3.14)
 project(app LANGUAGES CXX)
 
-# The name of the executable created for the application. Change this to change
-# the on-disk name of your application.
-set(BINARY_NAME "app")
+# The name and executable name come from the brand folder: `make brand` writes
+# brand.cmake. Never edit them here to rebrand the app.
+include("${CMAKE_CURRENT_SOURCE_DIR}/brand.cmake")
+# The name of the executable created for the application.
+set(BINARY_NAME "${BRAND_BINARY_NAME}")
 
 # Explicitly opt in to modern CMake behaviors to avoid warnings with recent
 # versions of CMake.

@@ -1,0 +1,14 @@
+name: Set up the app
+description: Generates what the app needs to compile (brand files, translations, database code). The same steps as `make app-setup`, for runners without make.
+
+runs:
+  using: composite
+  steps:
+    - name: Generate the brand files
+      shell: bash
+      working-directory: app/tool/brand
+      run: dart pub get && dart run bin/brand.dart --brand ../../../brand --app ../..
+    - name: Generate the translations and database code
+      shell: bash
+      working-directory: app
+      run: flutter pub get && dart run build_runner build

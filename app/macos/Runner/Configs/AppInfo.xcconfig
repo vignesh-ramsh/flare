@@ -4,11 +4,14 @@
 // future. If not, the values below would default to using the project name when this becomes a
 // 'flutter create' template.
 
+// The name and bundle ID come from the brand folder: `make brand` writes Brand.xcconfig.
+#include "Brand.xcconfig"
+
 // The application's name. By default this is also the title of the Flutter window.
-PRODUCT_NAME = app
+PRODUCT_NAME = $(BRAND_APP_NAME)
 
 // The application's bundle identifier
-PRODUCT_BUNDLE_IDENTIFIER = com.example.app
+PRODUCT_BUNDLE_IDENTIFIER = $(BRAND_BUNDLE_ID)
 
 // The copyright displayed in application information
 PRODUCT_COPYRIGHT = Copyright © 2026 com.example. All rights reserved.

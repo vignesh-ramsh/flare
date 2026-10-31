@@ -1,1 +1,3 @@
 #include "Generated.xcconfig"
+// The name, bundle ID, team and URL scheme come from the brand folder (`make brand`).
+#include "Brand.xcconfig"
