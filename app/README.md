@@ -1,8 +1,9 @@
 # The app
 
-The Flutter app for Android, iOS, Windows, macOS and Linux (the web app comes later). It is a skeleton:
-the layouts, the on-device database, the topic list and the connection to a server work, so it receives and
-keeps messages for the topics you subscribe to; sign-in, notifications and sending are still to come.
+The Flutter app for Android, iOS, Windows, macOS and Linux (the web app comes later). It connects to a Flare
+server, keeps messages for the topics you subscribe to on the device, and can sign in, reply, share a topic
+(link and QR code), open subscribe links and, on Windows, macOS and Linux, show notifications and live in the
+tray. Notifications on Android and iOS (push) and Inbox and Search are still to come.
 What it shows and why is in [docs/APP-DESIGN.md](../docs/APP-DESIGN.md).
 
 ## Set up and run
@@ -41,6 +42,51 @@ the app starts or stores anything: it finds what only the real platform shows. `
 the same for notifications, with a real notification daemon (`dunst`) on a real D-Bus session: it checks
 that history, the thread being read, minimum-priority messages and muted topics stay quiet, and that
 others are announced, and that a high-priority one stays until dismissed.
+
+## Try it on your own computer
+
+You need Go (the version in `server/go.mod`), Flutter 3.47 or newer, and the build tools for the platform you run
+on (the Linux packages above; Xcode on a Mac; Visual Studio with "Desktop development with C++" on Windows).
+From the repository root, with `make` (on Windows use WSL, or the commands in `.github/actions/app-setup`):
+
+```bash
+make server                 # builds server/bin/flare
+make app-setup              # brand files, translations, database code
+```
+
+Start a server in one terminal. This one is open: anyone who knows a topic's name can read and write it, which
+is fine on your own machine:
+
+```bash
+server/bin/flare serve --listen 127.0.0.1:8080 --database sqlite://$PWD/flare-local.db --log-format text
+```
+
+Start the app in another (`linux`, `macos` or `windows`):
+
+```bash
+cd app && flutter run -d linux
+```
+
+In the app, choose `http://127.0.0.1:8080` as the server (plain http is allowed), skip signing in, and subscribe to
+a topic such as `demo`. Then publish to it as any script would, and watch it arrive:
+
+```bash
+curl -H "Title: Hello" -H "Priority: 4" -d "It works" http://127.0.0.1:8080/demo
+```
+
+Try replying from the box under the thread, the info button (share link, QR code, Unsubscribe), and a subscribe
+link given to the program (the path is where your platform puts the built app):
+
+```bash
+app/build/linux/x64/debug/bundle/flare 'flare://subscribe/127.0.0.1:8080/another?scheme=http'
+```
+
+To try a server that needs a login, start it with `FLARE_AUTH_DEFAULT_ACCESS=deny-all`, create a user with
+`server/bin/flare user add --admin --database sqlite://$PWD/flare-local.db alice`, and sign in from the app.
+
+A phone or an emulator reaches your computer's server by its address on the network, not `127.0.0.1` (an
+Android emulator uses `10.0.2.2`), so start the server with `--listen 0.0.0.0:8080`. Phones show messages only
+while the app is open: their notifications need push, which is not built yet.
 
 ## Where things are
 
