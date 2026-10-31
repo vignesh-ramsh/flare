@@ -10,7 +10,6 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
@@ -124,28 +123,16 @@ func buildRegistry(ctx context.Context, cfg config.Config, st *store.SQLite, log
 	// environment's proxy, unlike the endpoints users choose.
 	google := push.NewHTTP2Client()
 	for _, app := range p.Apps {
-		if app.FCMCredentials != "" {
-			creds, err := os.ReadFile(app.FCMCredentials)
-			if err != nil {
-				return nil, fmt.Errorf("push.apps %s: read fcm-credentials: %w", app.AppID, err)
-			}
-			sender, err := push.NewFCM(creds, google)
-			if err != nil {
-				return nil, fmt.Errorf("push.apps %s: fcm-credentials %s: %w", app.AppID, app.FCMCredentials, err)
-			}
-			registry.AddApp(push.FCM, app.AppID, sender)
+		if err := push.AddApp(registry, app.Credentials(), google); err != nil {
+			return nil, err
 		}
-		if app.APNsKey != "" {
-			key, err := os.ReadFile(app.APNsKey)
-			if err != nil {
-				return nil, fmt.Errorf("push.apps %s: read apns-key: %w", app.AppID, err)
-			}
-			sender, err := push.NewAPNs(key, app.APNsKeyID, app.APNsTeamID, app.AppID, app.APNsSandbox, google)
-			if err != nil {
-				return nil, fmt.Errorf("push.apps %s: apns-key %s: %w", app.AppID, app.APNsKey, err)
-			}
-			registry.AddApp(push.APNs, app.AppID, sender)
+	}
+	for _, relay := range p.AllowedRelays {
+		base, err := push.NormalizeRelayURL(relay) // validated already
+		if err != nil {
+			return nil, err
 		}
+		registry.AddRelay(base, push.NewRelaySender(base, google))
 	}
 	return registry, nil
 }

@@ -150,6 +150,32 @@ func TestRegistrationIsRefusedWithTheReason(t *testing.T) {
 	}
 }
 
+func TestARelayDeviceIsRegisteredWithItsRelayAndHandle(t *testing.T) {
+	e := newEnv(t).withPush()
+	e.api.Push = push.NewService(e.store, e.auth, func() *push.Registry {
+		r := push.NewRegistry()
+		r.AddRelay("https://push.example.org", stubSender{})
+		return r
+	}(), push.ServiceConfig{})
+
+	body := func(relay, handle string) string {
+		return fmt.Sprintf(`{"app_id":"org.example.flare","platform":"ios","provider":"relay","relay":%q,"handle":%q}`, relay, handle)
+	}
+	id, secret := e.registerDevice(body("https://push.example.org/", "relay-handle-0123456789abcdef"))
+	d, err := e.store.Device(bg, id)
+	if err != nil || d.Provider != push.Relay || d.RelayURL != "https://push.example.org" || d.Target != "relay-handle-0123456789abcdef" {
+		t.Errorf("stored %+v, %v", d, err)
+	}
+	if resp, data := e.do("PUT", "/v1/devices/"+id+"/subscriptions", `{"topics":["news"]}`, withSecret(secret)...); resp.StatusCode != 200 {
+		t.Errorf("following: %d %s", resp.StatusCode, data)
+	}
+
+	resp, data := e.do("POST", "/v1/devices", body("https://evil.example.net", "relay-handle-0123456789abcdef"))
+	wantError(t, resp, data, 400, apierr.Unsupported, "that relay")
+	resp, data = e.do("POST", "/v1/devices", body("https://push.example.org", "bad"))
+	wantError(t, resp, data, 400, apierr.InvalidParameter, "handle")
+}
+
 func TestWebPushRegistrationNeedsAGenuineBrowserKey(t *testing.T) {
 	e := newEnv(t).withPush()
 	priv, _ := ecdh.P256().GenerateKey(rand.Reader)

@@ -206,6 +206,7 @@ paths:
         | `apns` | `token` | the device token Apple gave the app, in hexadecimal (iOS, macOS) |
         | `webpush` | `endpoint`, `keys` | a browser's push subscription, or a UnifiedPush distributor that gives keys; notifications are encrypted for it |
         | `unifiedpush` | `endpoint` | a UnifiedPush distributor's endpoint; the distributor sees the notification |
+        | `relay` | `relay`, `handle` | the address of a push relay the server is set to use (see `push.relays` in `/v1/config`), and the handle that relay gave the app. The relay holds the app publisher's Firebase and Apple keys; it is told only the handle, the subscription and the message ID, and never the topic or the content |
 
         The server refuses a device it can't reach, such as an `fcm` device for an app
         it has no credentials for (see `push` in `/v1/config`), rather than accept it
@@ -661,8 +662,10 @@ components:
           description: "The app's identifier: the Android application ID or the Apple bundle ID. A rebranded app has its own."
           examples: ["org.example.flare"]
         platform: { type: string, enum: [android, ios, macos, windows, linux, web] }
-        provider: { type: string, enum: [fcm, apns, webpush, unifiedpush] }
+        provider: { type: string, enum: [fcm, apns, webpush, unifiedpush, relay] }
         token: { type: string, description: "For `fcm` and `apns`." }
+        relay: { type: string, description: "For `relay`: the relay's address, which must be one the server is set to use.", examples: ["https://push.example.org"] }
+        handle: { type: string, description: "For `relay`: the opaque handle the relay gave the app.", minLength: 16, maxLength: 128, pattern: "^[A-Za-z0-9_-]+$" }
         endpoint: { type: string, description: "For `webpush` and `unifiedpush`: an https URL at a public address." }
         keys:
           type: object

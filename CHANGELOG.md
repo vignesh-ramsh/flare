@@ -35,6 +35,12 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Web Push (RFC 8291 and 8292, checked against the RFC's test vector), UnifiedPush, FCM and APNs; the last two
   have been tested against fakes only. `GET /v1/messages/{id}` fetches one message after a wake-up.
   `push.content-free` keeps message content out of push services. Endpoints that users supply must be https
-  at a public address, checked when connecting. The push relay is not built yet.
+  at a public address, checked when connecting.
+- The push relay (`flare relay`, [api/relay.yaml](api/relay.yaml)): a small server run by an app's publisher
+  that holds its Firebase and Apple keys and wakes devices for Flare servers that don't have them, telling
+  the server nothing of the push token and being told nothing of the topic or content. Apps register a
+  token for an opaque handle; servers list the relays they trust under `push.allowed-relays`. Handles are
+  kept as hashes, wake-ups are rate limited per handle and per address, and a device the push service has
+  dropped is forgotten by both the relay and the server. There is no official relay yet.
 - CI for the brand tool, tested on the oldest supported Dart (3.9) and the current stable one, and a
   check that app code never hard-codes the project name.

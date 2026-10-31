@@ -55,6 +55,12 @@ func CheckEndpoint(raw string, allowPrivate bool) (*url.URL, error) {
 	return u, nil
 }
 
+// parseAddr parses an IP address, or returns the zero Addr.
+func parseAddr(s string) netip.Addr {
+	a, _ := netip.ParseAddr(s)
+	return a
+}
+
 // Address ranges that are not on the public internet and are not covered by the
 // helpers on netip.Addr.
 var nonPublic = func() []netip.Prefix {

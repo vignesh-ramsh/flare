@@ -158,8 +158,9 @@ An app that is not running can be woken by the push service of its platform. The
 | **FCM** | Android | The app publisher's Firebase service account key, in `push.apps` |
 | **APNs** | iOS and macOS | The app publisher's Apple `.p8` key, in `push.apps` |
 
-FCM and APNs credentials belong to one app's publisher, so a server can push to the apps it holds keys
-for (your own branded app). The official apps will use a relay, which is not built yet.
+FCM and APNs credentials belong to one app's publisher, so a server can push directly only to the apps it
+holds keys for (your own branded app). For any other app, the publisher runs a **push relay** (below), and
+you list it under `push.allowed-relays`.
 
 How an app uses it (the contract is in [api/openapi.yaml](../api/openapi.yaml)):
 
@@ -200,10 +201,37 @@ the topic from `sub`, which it saved when it subscribed. Apps drop duplicates by
 - **Limits.** 20 devices per user (1000 anonymous ones in all), 100 topics per device. Registering a token
   that is already registered replaces the earlier registration.
 
-**Not yet:** the relay, so FCM and APNs work only for apps whose keys are in `push.apps`; per-topic privacy
-settings; rate limits on registration. **Tested against fakes only:** FCM and APNs. The Web Push encryption
+**Not yet:** per-topic privacy settings; rate limits on device registration. **Tested against fakes only:** FCM
+and APNs (and so the relay's upstream). The Web Push encryption
 matches the test vector in RFC 8291; the FCM and APNs requests follow Google's and Apple's documentation, but
 have not been run against the real services, so expect to fix details when you first do.
+
+## Running a push relay
+
+If you publish an app, other people's Flare servers can't wake its devices through Firebase and Apple, because
+the keys are yours. Run a relay: the same binary, with your keys.
+
+```bash
+flare relay --config relay.yml        # see deploy/relay.yml
+```
+
+The app registers its push token with the relay (`POST /v1/handles`) and gets an opaque **handle**, which it
+gives to the Flare servers it uses (`provider: relay`, `relay`, `handle` in `POST /v1/devices`). To notify the
+device a server asks the relay to wake the handle, naming only a subscription and a message by opaque IDs and
+the message's priority. The relay sends a notification that holds just those, and the app fetches the message
+from its server. So the relay never learns what was published or where, and the server never learns the push
+token. A server uses only the relays listed in its `push.allowed-relays`. The contract is
+[api/relay.yaml](../api/relay.yaml).
+
+- The relay keeps handles in its own database (`relay.database`), as hashes: a copy of it does not let anyone wake
+  a device.
+- It limits wake-ups per handle (30 a minute by default) and per client address, and registrations per address.
+  Over a limit it answers `429` with `Retry-After`, and the server retries later. Put it behind a reverse proxy
+  and set `trusted-proxies`, or every server looks like the proxy and they share one limit.
+- A push service that says the device is gone makes the relay drop the handle and answer `404`, which makes the
+  server forget the device; the app registers again the next time it runs.
+- Tested against a fake push service, and with real binaries up to the point where the relay would call Google
+  or Apple. Not run against either.
 
 ## Configuration
 
@@ -226,6 +254,8 @@ yet, is an **error**, so a typo can never leave something silently unconfigured.
 | `push.vapid-subject` | `base-url` | `mailto:` or `https:` contact for Web Push services |
 | `push.allow-private-endpoints` | `false` | Let push endpoints be on private networks and plain http |
 | `push.apps` | none | Per-app FCM and APNs credentials; see [deploy/server.yml](../deploy/server.yml) |
+| `push.allowed-relays` | none | Push relays this server may ask to wake devices |
+| `relay.database`, `relay.*-per-minute` | `sqlite://relay.db`, 30 / 6000 / 30 | For `flare relay`: its database and rate limits; see [deploy/relay.yml](../deploy/relay.yml) |
 | `trusted-proxies` | none | Reverse proxies (addresses or CIDR ranges) believed when they say who a client is in `X-Forwarded-For`; used to count failed logins per client |
 | `branding.name`, `.primary-color`, `.app-url-scheme` | Flare, `#F97316`, `flare` | How the server presents itself to apps |
 
@@ -248,8 +278,8 @@ finish, and exits. Subscribers reconnect and catch up.
 
 | | |
 |---|---|
-| **Works** | Publishing (headers and JSON); subscribing by JSON stream, SSE, WebSocket and poll; catching up with `since`; SQLite storage that survives restarts; expiry; users, passwords, access tokens and per-topic access rules, with the revocation of open connections and a limit on failed logins; push notifications through Web Push, UnifiedPush, FCM and APNs, with a durable queue and retries; health checks; `/v1/config`; graceful shutdown; the `flare publish`, `flare subscribe`, `flare login`, `flare user`, `flare token` and `flare access` commands |
-| **Not yet** | Rate limits on publishing and other abuse protection (the failed-login limit is the only one). Sign-up by users themselves, changing one's own password, reserving topic names. The push relay. Attachments, delayed delivery, action buttons, Markdown. Retracting a message. End-to-end encryption. PostgreSQL and NATS (cluster mode). Prometheus metrics. The web app. Built-in TLS |
+| **Works** | Publishing (headers and JSON); subscribing by JSON stream, SSE, WebSocket and poll; catching up with `since`; SQLite storage that survives restarts; expiry; users, passwords, access tokens and per-topic access rules, with the revocation of open connections and a limit on failed logins; push notifications through Web Push, UnifiedPush, FCM and APNs, directly or through a relay (`flare relay`), with a durable queue and retries; health checks; `/v1/config`; graceful shutdown; the `flare publish`, `flare subscribe`, `flare login`, `flare user`, `flare token` and `flare access` commands |
+| **Not yet** | Rate limits on publishing and other abuse protection (the failed-login limit is the only one). Sign-up by users themselves, changing one's own password, reserving topic names. An official relay for the official apps. Attachments, delayed delivery, action buttons, Markdown. Retracting a message. End-to-end encryption. PostgreSQL and NATS (cluster mode). Prometheus metrics. The web app. Built-in TLS |
 
 Until rate limits exist, **don't expose an open server to the internet**: set
 `auth.default-access: deny-all`, or listen on `127.0.0.1`, or keep it on a private network. Even with
@@ -260,11 +290,12 @@ server's own origin; other clients can open one from anywhere.
 ## Code layout
 
 ```
-cmd/flare/          the command: serve, publish, subscribe, login, user, token, access
+cmd/flare/          the command: serve, relay, publish, subscribe, login, user, token, access
 internal/
   api/              HTTP routes, publish and subscribe handlers, middleware
   realtime/         the hub (storing and delivering) and the wire formats: JSON, SSE, WebSocket
-  push/             devices, the notification queue and its dispatcher, and the senders (Web Push, UnifiedPush, FCM, APNs)
+  push/             devices, the notification queue and its dispatcher, and the senders (Web Push, UnifiedPush, FCM, APNs, relay)
+  relay/            the push relay: handles, wake-ups, rate limits
   broker/           fan-out to live subscribers (in-process; NATS later)
   store/            message storage (SQLite; PostgreSQL later)
   message/          what a message is, and the rules for what may be published

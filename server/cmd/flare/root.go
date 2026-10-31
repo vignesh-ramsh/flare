@@ -30,6 +30,7 @@ func newRootCmd(c cli) *cobra.Command {
 		Long: `Flare is a publish/subscribe notification server and its command-line client.
 
   flare serve                       run the server
+  flare relay                       run a push relay for an app you publish
   flare publish backups "done"      send a message to a topic
   flare subscribe backups           print messages as they arrive
 
@@ -47,7 +48,7 @@ Anything that can make an HTTP request can publish:
 	root.CompletionOptions.DisableDefaultCmd = true
 
 	root.AddCommand(newServeCmd(c), newPublishCmd(c), newSubscribeCmd(c), newLoginCmd(c),
-		newUserCmd(c), newTokenCmd(c), newAccessCmd(c))
+		newUserCmd(c), newTokenCmd(c), newAccessCmd(c), newRelayCmd(c))
 	return root
 }
 

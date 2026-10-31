@@ -1,0 +1,234 @@
+openapi: 3.1.0
+info:
+  title: Flare push relay API
+  version: "1"
+  summary: Wake the devices of an app for servers that don't hold its push credentials.
+  description: |
+    Firebase and Apple only accept pushes signed with credentials that belong to the
+    publisher of an app. A Flare server run by someone else can't have them, so the
+    publisher runs a **push relay** that does. The relay is the same `flare` binary
+    (`flare relay`).
+
+    ```
+    app   --POST /v1/handles {token}---------->  relay    (once; gets a handle)
+    app   --POST /v1/devices {relay, handle}-->  server   (the server never sees the token)
+    publisher --POST /alerts-->  server  --POST /v1/wake {handle, sub, id}-->  relay  -->  FCM / APNs  -->  app
+    app   --GET /v1/messages/{id}-->  server   (with the user's own credentials)
+    ```
+
+    The relay learns nothing of what was published: it is told an opaque handle, an
+    opaque subscription ID and a message ID, and sends a notification that holds only
+    those. The server never learns the push token. A handle can be revoked by the app
+    at any time.
+
+    ## Errors
+
+    Every error response has the JSON body of the Flare API: a `code` (the HTTP status
+    followed by two digits), the `http` status and an `error`.
+
+    ## Limits
+
+    Wake-ups are limited per handle and per client address, and registrations per
+    client address (see the relay's `relay` configuration). Over a limit the relay
+    answers 429 with `Retry-After`; a Flare server waits and tries again.
+  license:
+    name: Apache-2.0
+    identifier: Apache-2.0
+servers:
+  - url: http://localhost:8080
+# Nothing here needs credentials, except revoking a handle, which needs its secret.
+security:
+  - {}
+tags:
+  - name: Handles
+    description: For apps.
+  - name: Wake
+    description: For Flare servers.
+  - name: Server
+    description: Information about the relay itself.
+
+paths:
+  /v1/handles:
+    post:
+      tags: [Handles]
+      summary: Give the relay a push token, and get a handle for it
+      description: |
+        The handle is what the app gives to Flare servers. Registering a token that the
+        relay already has replaces its handle (the old one stops working), so an app
+        that registers at every launch leaves nothing behind. The relay refuses an app
+        it holds no credentials for (see `/v1/config`).
+      operationId: registerHandle
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/HandleRegistration" }
+      responses:
+        "201":
+          description: Registered. The secret is shown only now.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HandleCreated" }
+        default:
+          $ref: "#/components/responses/Error"
+
+  /v1/handles/{handle}:
+    delete:
+      tags: [Handles]
+      summary: Revoke a handle
+      description: No Flare server can wake the device through it any more.
+      operationId: removeHandle
+      security:
+        - handleSecret: []
+      parameters:
+        - name: handle
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "204":
+          description: Revoked.
+        default:
+          $ref: "#/components/responses/Error"
+
+  /v1/wake:
+    post:
+      tags: [Wake]
+      summary: Tell a device that a message is waiting
+      description: |
+        Sends the device a notification that holds a subscription ID and a message ID
+        and nothing else. The app finds the topic from the subscription ID, and fetches
+        the message from its server.
+
+        The answer says what the server should do: **204** sent; **404** the handle is
+        unknown, or the push service says the device is gone (the handle is removed): the
+        server forgets the device, and the app registers again; **422** the push service
+        refused the notification for good: give up on this one; **429** or **503** try
+        again later, after `Retry-After` if present.
+      operationId: wake
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WakeRequest" }
+      responses:
+        "204":
+          description: Sent to the push service.
+        default:
+          $ref: "#/components/responses/Error"
+
+  /v1/config:
+    get:
+      tags: [Server]
+      summary: Which apps this relay can wake
+      operationId: getRelayConfig
+      responses:
+        "200":
+          description: The relay's role and the apps it holds credentials for.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [api_version, role, apps]
+                properties:
+                  api_version: { type: integer, examples: [1] }
+                  role: { type: string, const: push-relay }
+                  apps:
+                    type: object
+                    description: For `fcm` and `apns`, the app IDs.
+                    additionalProperties:
+                      type: array
+                      items: { type: string }
+
+  /healthz:
+    get:
+      tags: [Server]
+      summary: The process is up
+      operationId: healthz
+      responses:
+        "200":
+          description: ok
+          content:
+            text/plain:
+              schema: { type: string }
+
+  /readyz:
+    get:
+      tags: [Server]
+      summary: The relay can reach its database
+      operationId: readyz
+      responses:
+        "200":
+          description: ok
+          content:
+            text/plain:
+              schema: { type: string }
+        default:
+          $ref: "#/components/responses/Error"
+
+components:
+  securitySchemes:
+    handleSecret:
+      type: apiKey
+      in: header
+      name: Handle-Secret
+      description: The secret returned when the handle was registered.
+
+  responses:
+    Error:
+      description: The request was refused or failed.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  schemas:
+    HandleRegistration:
+      type: object
+      required: [app_id, platform, provider, token]
+      additionalProperties: false
+      properties:
+        app_id:
+          type: string
+          maxLength: 128
+          description: "The app's identifier: the Android application ID or the Apple bundle ID."
+          examples: ["org.example.flare"]
+        platform: { type: string, enum: [android, ios, macos, windows, linux, web] }
+        provider: { type: string, enum: [fcm, apns] }
+        token: { type: string, description: "The registration token Firebase gave the app, or the device token Apple gave it (hexadecimal)." }
+
+    HandleCreated:
+      type: object
+      required: [handle, secret]
+      properties:
+        handle:
+          type: string
+          description: Opaque and unguessable. Give it to Flare servers as `handle`, with this relay's address as `relay`, when registering a device.
+        secret:
+          type: string
+          description: "`flrh_` and 43 characters. Send it in `Handle-Secret` to revoke the handle. Only a hash is kept, so it can't be shown again."
+
+    WakeRequest:
+      type: object
+      required: [handle, sub, id]
+      description: A newer server may send more fields; the relay ignores those it doesn't know.
+      properties:
+        handle: { type: string, minLength: 16, maxLength: 128 }
+        sub: { type: string, maxLength: 128, description: The subscription ID. Opaque to the relay. }
+        id: { type: string, maxLength: 128, description: The message ID. Opaque to the relay. }
+        priority: { type: integer, minimum: 0, maximum: 5, description: "The message's priority, so that the notification is as urgent as the message. 0 or absent means the default, 3." }
+        ttl: { type: integer, minimum: 0, description: "Seconds the push service should keep trying. 0 or absent means a day; at most 28 days." }
+
+    Error:
+      type: object
+      required: [code, http, error]
+      properties:
+        code:
+          type: integer
+          description: |
+            The HTTP status followed by two digits. 40002 invalid parameter; 40003 not
+            supported (this relay has no credentials for the app); 40004 unreadable body;
+            40101 send the secret; 40102 wrong secret; 40401 not found; 41301 too large;
+            42201 undeliverable; 42904 rate limited; 50001 internal error; 50301 the push
+            service did not take it, or the database is down.
+        http: { type: integer }
+        error: { type: string }

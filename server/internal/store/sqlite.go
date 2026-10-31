@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -27,6 +28,19 @@ var _ Store = (*SQLite)(nil)
 // OpenSQLite opens the database at path, creating the file and its folder if
 // needed, and brings its schema up to date.
 func OpenSQLite(ctx context.Context, path string) (*SQLite, error) {
+	db, err := OpenDatabase(ctx, path, migrations.FS, "")
+	if err != nil {
+		return nil, err
+	}
+	return &SQLite{db: db}, nil
+}
+
+// OpenDatabase opens the SQLite database at path with the settings every Flare
+// database uses (durable commits, write-ahead logging, transactions that take the
+// write lock first), and applies the migrations in fsys. table names the table
+// that records which have been applied: "" for goose's default, and a name of its
+// own for a database that is not the server's.
+func OpenDatabase(ctx context.Context, path string, fsys fs.FS, table string) (*sql.DB, error) {
 	if dir := filepath.Dir(path); dir != "." {
 		if err := os.MkdirAll(dir, 0o750); err != nil {
 			return nil, fmt.Errorf("create database folder: %w", err)
@@ -61,11 +75,11 @@ func OpenSQLite(ctx context.Context, path string) (*SQLite, error) {
 		db.Close()
 		return nil, fmt.Errorf("open database %s: %w", path, err)
 	}
-	if err := migrate(ctx, db); err != nil {
+	if err := migrate(ctx, db, fsys, table); err != nil {
 		db.Close()
 		return nil, err
 	}
-	return &SQLite{db: db}, nil
+	return db, nil
 }
 
 // escapePath makes path safe to use inside a SQLite "file:" URI.
@@ -73,8 +87,12 @@ func escapePath(path string) string {
 	return strings.NewReplacer("%", "%25", "?", "%3f", "#", "%23").Replace(path)
 }
 
-func migrate(ctx context.Context, db *sql.DB) error {
-	provider, err := goose.NewProvider(goose.DialectSQLite3, db, migrations.FS)
+func migrate(ctx context.Context, db *sql.DB, fsys fs.FS, table string) error {
+	var opts []goose.ProviderOption
+	if table != "" {
+		opts = append(opts, goose.WithTableName(table))
+	}
+	provider, err := goose.NewProvider(goose.DialectSQLite3, db, fsys, opts...)
 	if err != nil {
 		return fmt.Errorf("prepare migrations: %w", err)
 	}

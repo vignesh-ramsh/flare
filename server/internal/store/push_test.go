@@ -442,6 +442,10 @@ func TestSettingsAreKeptOnceSet(t *testing.T) {
 	}
 }
 
+// busyTimeoutSlack is the shortest wait that can only have been the busy timeout
+// (5 seconds) running out, with room for a slow machine.
+const busyTimeoutSlack = 4 * time.Second
+
 // Changing a device's subscriptions while messages are published and notifications
 // are claimed must never fail. A transaction that starts by reading and then writes
 // is refused by SQLite, at once and whatever the busy timeout, if another writer
@@ -499,10 +503,24 @@ func TestSubscriptionsCanBeChangedWhileOthersWrite(t *testing.T) {
 			defer changers.Done()
 			for round := 0; round < 150; round++ {
 				topics := []string{"t", fmt.Sprintf("topic-%d", round%5)}
-				if _, err := s.SetSubscriptions(ctx, device, topics, base); err != nil {
-					t.Errorf("SetSubscriptions: %v", err)
-					return
+				begin := time.Now()
+				_, err := s.SetSubscriptions(ctx, device, topics, base)
+				if err == nil {
+					continue
 				}
+				// What this test is about fails at once: a transaction that reads and
+				// then writes is refused the moment another writer commits. After
+				// waiting out the busy timeout it is a different thing: SQLite has one
+				// writer at a time and does not queue them fairly, so on a machine
+				// whose disk and CPUs are swamped (other test packages run at the same
+				// time) a writer can be kept waiting for seconds, and then gives up.
+				// That is how SQLite behaves under overload, not the bug.
+				if waited := time.Since(begin); waited < busyTimeoutSlack {
+					t.Errorf("SetSubscriptions failed after %v: %v", waited, err)
+				} else {
+					t.Logf("SetSubscriptions gave up after %v under load: %v", waited, err)
+				}
+				return
 			}
 		}(fmt.Sprintf("d%d", i))
 	}

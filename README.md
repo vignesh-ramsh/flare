@@ -11,7 +11,8 @@ curl -d "Backup finished" https://flare.example.com/backups
 - **Self-host it:** one static binary, SQLite by default, Docker Compose in a few minutes. See
   [server/README.md](server/README.md). It is early: it is open by default, so turn on accounts
   (`auth.default-access: deny-all`) before exposing it. Push notifications work through Web Push,
-  UnifiedPush, FCM and APNs; the relay for the official apps, and rate limits, are still to come.
+  UnifiedPush, FCM and APNs, directly or through a push relay (`flare relay`); rate limits, and an official
+  relay for the official apps, are still to come.
 - **Rebrand it:** set your own app name, logo, colours and identifiers in one brand folder and rebuild
   the apps. No source changes needed. See [brand/README.md](brand/README.md).
 

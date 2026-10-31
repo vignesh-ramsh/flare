@@ -191,6 +191,24 @@ func TestValidate(t *testing.T) {
 		{"an https subject", func(c *Config) { c.Push.VAPIDSubject = "https://flare.example.com" }, ""},
 		{"a subject that is neither", func(c *Config) { c.Push.VAPIDSubject = "admin@example.com" }, "push.vapid-subject"},
 		{"a plain http subject", func(c *Config) { c.Push.VAPIDSubject = "http://flare.example.com" }, "push.vapid-subject"},
+		{"relay limits at the extremes", func(c *Config) {
+			c.Relay.WakesPerHandlePerMinute, c.Relay.WakesPerIPPerMinute, c.Relay.RegistrationsPerIPPerMinute = 1, 1_000_000, 1
+		}, ""},
+		{"a relay limit of zero", func(c *Config) { c.Relay.WakesPerHandlePerMinute = 0 }, "relay.wakes-per-handle-per-minute"},
+		{"a relay limit that is negative", func(c *Config) { c.Relay.RegistrationsPerIPPerMinute = -1 }, "relay.registrations-per-ip-per-minute"},
+		{"a relay limit that is huge", func(c *Config) { c.Relay.WakesPerIPPerMinute = 2_000_000 }, "relay.wakes-per-ip-per-minute"},
+		{"a relay database that is not sqlite", func(c *Config) { c.Relay.Database = "mysql://x" }, "relay.database"},
+		{"an allowed relay", func(c *Config) { c.Push.AllowedRelays = []string{"https://push.example.org"} }, ""},
+		{"two allowed relays", func(c *Config) {
+			c.Push.AllowedRelays = []string{"https://push.example.org", "https://relay.acme.example/push"}
+		}, ""},
+		{"a relay on this machine", func(c *Config) { c.Push.AllowedRelays = []string{"http://127.0.0.1:9000"} }, ""},
+		{"a relay without a scheme", func(c *Config) { c.Push.AllowedRelays = []string{"push.example.org"} }, "allowed-relays[0]"},
+		{"a relay over plain http", func(c *Config) { c.Push.AllowedRelays = []string{"https://ok.example.org", "http://push.example.org"} }, "allowed-relays[1]"},
+		{"a relay with credentials", func(c *Config) { c.Push.AllowedRelays = []string{"https://u:p@push.example.org"} }, "credentials"},
+		{"a relay listed twice", func(c *Config) {
+			c.Push.AllowedRelays = []string{"https://push.example.org", "https://push.example.org/"}
+		}, "listed twice"},
 		{"an app with fcm", func(c *Config) {
 			c.Push.Apps = []PushApp{{AppID: "org.example.flare", FCMCredentials: "/etc/flare/fcm.json"}}
 		}, ""},
@@ -394,5 +412,48 @@ func TestPushFromTheEnvironment(t *testing.T) {
 	}
 	if !c.Push.Enabled || c.Push.ContentFree {
 		t.Errorf("a bad value changed a setting: %+v", c.Push)
+	}
+}
+
+func TestRelayDefaultsAndFile(t *testing.T) {
+	d := Default().Relay
+	if d.Database != "sqlite://relay.db" || d.WakesPerHandlePerMinute != 30 || d.WakesPerIPPerMinute != 6000 || d.RegistrationsPerIPPerMinute != 30 {
+		t.Errorf("defaults = %+v", d)
+	}
+	if p, err := (&Config{Relay: d}).RelayDatabasePath(); err != nil || p != "relay.db" {
+		t.Errorf("RelayDatabasePath = %q, %v", p, err)
+	}
+	c, err := Load(write(t, "relay:\n  database: sqlite:///var/lib/flare/relay.db\n  wakes-per-handle-per-minute: 10\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Relay.Database != "sqlite:///var/lib/flare/relay.db" || c.Relay.WakesPerHandlePerMinute != 10 || c.Relay.WakesPerIPPerMinute != 6000 {
+		t.Errorf("relay = %+v", c.Relay)
+	}
+	// The server's database and the relay's are different settings.
+	if c.Database != "sqlite://flare.db" {
+		t.Errorf("database = %q", c.Database)
+	}
+}
+
+func TestTheSampleRelayConfigurationIsValid(t *testing.T) {
+	c, err := Load(filepath.Join("..", "..", "..", "deploy", "relay.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if len(c.Push.Apps) != 1 || c.Push.Apps[0].AppID != "com.acme.alerts" || c.Push.Apps[0].FCMCredentials == "" || c.Push.Apps[0].APNsKey == "" {
+		t.Errorf("apps = %+v", c.Push.Apps)
+	}
+	// What the sample states for the relay is what the relay does without it.
+	if c.Relay.WakesPerHandlePerMinute != Default().Relay.WakesPerHandlePerMinute ||
+		c.Relay.WakesPerIPPerMinute != Default().Relay.WakesPerIPPerMinute ||
+		c.Relay.RegistrationsPerIPPerMinute != Default().Relay.RegistrationsPerIPPerMinute {
+		t.Errorf("the sample's limits differ from the defaults it claims to show: %+v", c.Relay)
+	}
+	if !reflect.DeepEqual(c.TrustedProxies, []string{"172.16.0.0/12", "192.168.0.0/16"}) {
+		t.Errorf("trusted-proxies = %v", c.TrustedProxies)
 	}
 }

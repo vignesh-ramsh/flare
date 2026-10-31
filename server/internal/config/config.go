@@ -44,6 +44,7 @@ type Config struct {
 
 	Auth     Auth     `yaml:"auth"`
 	Push     Push     `yaml:"push"`
+	Relay    Relay    `yaml:"relay"`
 	Branding Branding `yaml:"branding"`
 }
 
@@ -68,10 +69,29 @@ type Push struct {
 	// networks and use plain http, for a UnifiedPush distributor on the same network.
 	// Otherwise the server refuses to send anywhere but public https addresses.
 	AllowPrivateEndpoints bool `yaml:"allow-private-endpoints"`
+	// AllowedRelays are the push relays this server will ask to wake devices of
+	// apps it holds no credentials for (see the push relay in the architecture). A
+	// device can register through a relay only if it is listed here, so devices can't
+	// make the server send requests to addresses of their choosing.
+	AllowedRelays []string `yaml:"allowed-relays"`
 	// Apps are the apps this server holds Firebase and Apple credentials for. Each
 	// credential belongs to one app's publisher, so a server can push only to the apps
 	// listed here; for other apps a relay does it.
 	Apps []PushApp `yaml:"apps"`
+}
+
+// Relay configures `flare relay`, which wakes devices for servers that don't hold
+// their app's push credentials. The relay uses listen, trusted-proxies and
+// push.apps from the rest of the configuration.
+type Relay struct {
+	// Database is where the relay keeps the handles apps have registered. It is not
+	// the server's database.
+	Database string `yaml:"database"`
+	// The limits, per minute: wake-ups for one handle, wake-ups and registrations
+	// from one client address.
+	WakesPerHandlePerMinute     int `yaml:"wakes-per-handle-per-minute"`
+	WakesPerIPPerMinute         int `yaml:"wakes-per-ip-per-minute"`
+	RegistrationsPerIPPerMinute int `yaml:"registrations-per-ip-per-minute"`
 }
 
 // PushApp holds the push credentials of one app.
@@ -113,6 +133,7 @@ func Default() Config {
 		MessageSizeLimit: 4096,
 		Auth:             Auth{DefaultAccess: string(auth.ReadWrite)},
 		Push:             Push{Enabled: true, WebPush: true, UnifiedPush: true},
+		Relay:            Relay{Database: "sqlite://relay.db", WakesPerHandlePerMinute: 30, WakesPerIPPerMinute: 6000, RegistrationsPerIPPerMinute: 30},
 		Branding:         Branding{Name: "Flare", PrimaryColor: "#F97316", AppURLScheme: "flare"},
 	}
 }
@@ -272,6 +293,19 @@ func (c *Config) Validate() error {
 
 	c.validatePush(bad)
 
+	if _, err := c.RelayDatabasePath(); err != nil {
+		bad("relay.database", "%v", err)
+	}
+	for key, n := range map[string]int{
+		"relay.wakes-per-handle-per-minute":     c.Relay.WakesPerHandlePerMinute,
+		"relay.wakes-per-ip-per-minute":         c.Relay.WakesPerIPPerMinute,
+		"relay.registrations-per-ip-per-minute": c.Relay.RegistrationsPerIPPerMinute,
+	} {
+		if n < 1 || n > 1_000_000 {
+			bad(key, "must be between 1 and 1000000 (found %d)", n)
+		}
+	}
+
 	b := c.Branding
 	if n := utf8.RuneCountInString(b.Name); n < 1 || n > 50 || strings.ContainsFunc(b.Name, func(r rune) bool { return r < 0x20 || r == 0x7F }) {
 		bad("branding.name", "must be 1-50 characters on one line")
@@ -290,17 +324,22 @@ func (c *Config) Validate() error {
 }
 
 // DatabasePath returns the file the SQLite database lives in.
-func (c *Config) DatabasePath() (string, error) {
-	if path, ok := strings.CutPrefix(c.Database, "sqlite://"); ok {
+func (c *Config) DatabasePath() (string, error) { return sqlitePath(c.Database) }
+
+// RelayDatabasePath returns the file the relay's SQLite database lives in.
+func (c *Config) RelayDatabasePath() (string, error) { return sqlitePath(c.Relay.Database) }
+
+func sqlitePath(database string) (string, error) {
+	if path, ok := strings.CutPrefix(database, "sqlite://"); ok {
 		if path == "" {
 			return "", errors.New("sqlite:// needs a file path, like sqlite:///var/lib/flare/flare.db")
 		}
 		return path, nil
 	}
-	if strings.HasPrefix(c.Database, "postgres://") || strings.HasPrefix(c.Database, "postgresql://") {
+	if strings.HasPrefix(database, "postgres://") || strings.HasPrefix(database, "postgresql://") {
 		return "", errors.New("PostgreSQL is not supported yet; use sqlite://<path>")
 	}
-	return "", fmt.Errorf("must start with sqlite:// (found %q)", c.Database)
+	return "", fmt.Errorf("must start with sqlite:// (found %q)", database)
 }
 
 // Open reports whether anyone who can reach the server may publish or subscribe
@@ -319,6 +358,18 @@ func (c *Config) validatePush(bad func(key, format string, args ...any)) {
 			bad("push.vapid-subject", "must be a mailto: address or an https: URL (found %q)", s)
 		} else if len(s) > 200 {
 			bad("push.vapid-subject", "must be at most 200 characters")
+		}
+	}
+	relays := map[string]bool{}
+	for i, r := range p.AllowedRelays {
+		norm, err := push.NormalizeRelayURL(r)
+		switch {
+		case err != nil:
+			bad(fmt.Sprintf("push.allowed-relays[%d]", i), "%v", err)
+		case relays[norm]:
+			bad(fmt.Sprintf("push.allowed-relays[%d]", i), "%q is listed twice", r)
+		default:
+			relays[norm] = true
 		}
 	}
 	seen := map[string]bool{}
@@ -342,5 +393,14 @@ func (c *Config) validatePush(bad func(key, format string, args ...any)) {
 		if app.APNsKey == "" && (app.APNsKeyID != "" || app.APNsTeamID != "" || app.APNsSandbox) {
 			bad(key, "%s: apns-key-id, apns-team-id and apns-sandbox only mean something with apns-key", app.AppID)
 		}
+	}
+}
+
+// Credentials returns the app's push credentials in the form the push package
+// reads them.
+func (a PushApp) Credentials() push.App {
+	return push.App{
+		AppID: a.AppID, FCMCredentials: a.FCMCredentials,
+		APNsKey: a.APNsKey, APNsKeyID: a.APNsKeyID, APNsTeamID: a.APNsTeamID, APNsSandbox: a.APNsSandbox,
 	}
 }

@@ -428,3 +428,101 @@ func TestOnlyTheDeviceWithTheSecretCanChangeIt(t *testing.T) {
 func testLogger(w io.Writer) *slog.Logger {
 	return slog.New(slog.NewTextHandler(w, &slog.HandlerOptions{Level: slog.LevelDebug}))
 }
+
+// --- devices that register through a relay ----------------------------------
+
+func relayRegistry() *push.Registry {
+	r := fullRegistry()
+	r.AddRelay("https://push.example.org", nullSender{})
+	return r
+}
+
+func relayDevice(relay, handle string) push.Registration {
+	return push.Registration{AppID: "org.example.flare", Platform: "ios", Provider: push.Relay, Relay: relay, Handle: handle}
+}
+
+const handle = "relay-handle-0123456789abcdef"
+
+func TestARelayDeviceIsAcceptedForAnAllowedRelayInAnySpelling(t *testing.T) {
+	e := newEnv(t)
+	e.svc = push.NewService(e.store, e.access, relayRegistry(), push.ServiceConfig{Now: func() time.Time { return e.now }})
+	for i, relay := range []string{"https://push.example.org", "https://push.example.org/", " https://push.example.org/ "} {
+		d, _, err := e.svc.Register(ctx, "", relayDevice(relay, handle+fmt.Sprint(i)))
+		if err != nil {
+			t.Fatalf("%q: %v", relay, err)
+		}
+		if d.RelayURL != "https://push.example.org" || d.Target != handle+fmt.Sprint(i) || d.Provider != push.Relay {
+			t.Errorf("stored as %+v", d)
+		}
+	}
+}
+
+func TestARelayThatIsNotAllowedIsRefused(t *testing.T) {
+	e := newEnv(t)
+	e.svc = push.NewService(e.store, e.access, relayRegistry(), push.ServiceConfig{})
+	_, _, err := e.svc.Register(ctx, "", relayDevice("https://evil.example.net", handle))
+	if !errors.Is(err, push.ErrUnsupported) || !strings.Contains(err.Error(), "that relay") {
+		t.Errorf("err = %v, want ErrUnsupported naming the relay as the problem", err)
+	}
+	// A server with no relays at all.
+	_, _, err = newEnv(t).svc.Register(ctx, "", relayDevice("https://push.example.org", handle))
+	if !errors.Is(err, push.ErrUnsupported) {
+		t.Errorf("a server with no relays: %v", err)
+	}
+}
+
+func TestRelayRegistrationsAreChecked(t *testing.T) {
+	e := newEnv(t)
+	e.svc = push.NewService(e.store, e.access, relayRegistry(), push.ServiceConfig{})
+	tests := []struct {
+		name  string
+		reg   push.Registration
+		field string
+	}{
+		{"no relay", relayDevice("", handle), "relay"},
+		{"a relay that is not a URL", relayDevice("push.example.org", handle), "relay"},
+		{"a relay over plain http", relayDevice("http://push.example.org", handle), "relay"},
+		{"no handle", relayDevice("https://push.example.org", ""), "handle"},
+		{"a short handle", relayDevice("https://push.example.org", "short"), "handle"},
+		{"a handle with a slash", relayDevice("https://push.example.org", "relay/handle/0123456789"), "handle"},
+		{"a token as well", func() push.Registration {
+			r := relayDevice("https://push.example.org", handle)
+			r.Token = "x"
+			return r
+		}(), "provider"},
+		{"an endpoint as well", func() push.Registration {
+			r := relayDevice("https://push.example.org", handle)
+			r.Endpoint = "https://x.example/"
+			return r
+		}(), "provider"},
+		{"a relay on an fcm device", func() push.Registration { r := fcm(fcmToken); r.Relay = "https://push.example.org"; return r }(), "endpoint"},
+		{"a handle on an apns device", push.Registration{AppID: "org.example.flare", Platform: "ios", Provider: push.APNs, Token: strings.Repeat("ab", 32), Handle: handle}, "endpoint"},
+		{"a handle on a unifiedpush device", push.Registration{AppID: "a", Platform: "android", Provider: push.UnifiedPush, Endpoint: "https://up.example.com/x", Handle: handle}, "provider"},
+	}
+	for _, tt := range tests {
+		_, _, err := e.svc.Register(ctx, "", tt.reg)
+		var in *push.InputError
+		if !errors.As(err, &in) || in.Field != tt.field {
+			t.Errorf("%s: err = %v, want an InputError about %q", tt.name, err, tt.field)
+		}
+	}
+}
+
+func TestRegisteringAHandleAgainReplacesTheDevice(t *testing.T) {
+	e := newEnv(t)
+	e.svc = push.NewService(e.store, e.access, relayRegistry(), push.ServiceConfig{})
+	first, _, err := e.svc.Register(ctx, "", relayDevice("https://push.example.org", handle))
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, _, err := e.svc.Register(ctx, "", relayDevice("https://push.example.org/", handle))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.store.Device(ctx, first.ID); !errors.Is(err, push.ErrNotFound) {
+		t.Errorf("the earlier registration survived: %v", err)
+	}
+	if _, err := e.store.Device(ctx, second.ID); err != nil {
+		t.Error(err)
+	}
+}

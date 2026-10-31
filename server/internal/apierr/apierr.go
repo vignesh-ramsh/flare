@@ -20,6 +20,8 @@ const (
 	TooMany            = 42901 // a limit on the number of subscriptions was reached
 	Throttled          = 42902 // too many failed login attempts from this address
 	TooManyDevices     = 42903 // the owner already has as many push devices as are allowed
+	RateLimited        = 42904 // too many requests from this client or for this handle
+	Undeliverable      = 42201 // a push relay could not deliver the notification, and retrying won't help
 	Internal           = 50001 // something went wrong on the server
 	Lagged             = 50002 // a subscription was dropped because the client fell behind
 	Unavailable        = 50301 // the server can't take messages right now

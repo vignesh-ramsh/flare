@@ -1,0 +1,46 @@
+# Flare push relay configuration: `flare relay --config relay.yml`.
+#
+# A relay is for whoever PUBLISHES an app. Firebase and Apple only accept pushes
+# signed with the keys of the app's publisher, so a Flare server run by someone
+# else can't wake that app's devices. The relay holds the keys and does it for
+# them, without learning what was published or where: it is told only an opaque
+# handle, subscription and message ID. See api/relay.yaml.
+#
+# If you run your own server for your own app, you don't need a relay: put the
+# keys in the server's push.apps instead.
+#
+# The settings below are the relay's; the rest of the server configuration does
+# not apply. Environment variables FLARE_LISTEN and FLARE_TRUSTED_PROXIES work too.
+
+# Where to listen. Put a reverse proxy in front for HTTPS (the Caddyfile in this
+# folder works), because servers and apps will reach the relay over the internet.
+listen: ":8080"
+
+# The reverse proxies in front of the relay. The limits below are per client
+# address, so without this every server looks like the proxy and they all share
+# one limit. See trusted-proxies in server.yml.
+trusted-proxies:
+  - 172.16.0.0/12
+  - 192.168.0.0/16
+
+relay:
+  # The tokens apps have registered, each behind an opaque handle. A database of
+  # its own, not a Flare server's. Back it up like any other.
+  database: sqlite:///var/lib/flare/relay.db
+
+  # Limits, per minute. Over a limit the relay answers 429 and the server tries
+  # again later. A burst of a quarter of the limit (at least 5) is allowed first.
+  wakes-per-handle-per-minute: 30       # a device woken more often than this is being abused or is broken
+  wakes-per-ip-per-minute: 6000         # one publish to a topic with many devices wakes them all at once
+  registrations-per-ip-per-minute: 30
+
+push:
+  # The apps this relay serves, with their credentials. Each app registers with the
+  # relay by its app-id, which must match the id in its build.
+  apps:
+    - app-id: com.acme.alerts                    # Android application ID and Apple bundle ID
+      fcm-credentials: /etc/flare/acme-fcm.json  # service account key from the Firebase console
+      apns-key: /etc/flare/AuthKey_ABC123.p8     # from the Apple Developer account
+      apns-key-id: ABC123
+      apns-team-id: TEAM123
+      apns-sandbox: false                        # true for apps built for development

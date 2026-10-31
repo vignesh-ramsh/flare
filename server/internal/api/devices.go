@@ -85,6 +85,8 @@ func (a *API) registerDevice(w http.ResponseWriter, r *http.Request) {
 		Provider   string `json:"provider"`
 		Token      string `json:"token"`
 		Endpoint   string `json:"endpoint"`
+		Relay      string `json:"relay"`
+		Handle     string `json:"handle"`
 		AppVersion string `json:"app_version"`
 		Keys       struct {
 			P256DH string `json:"p256dh"`
@@ -96,7 +98,7 @@ func (a *API) registerDevice(w http.ResponseWriter, r *http.Request) {
 	}
 	d, secret, err := a.Push.Register(r.Context(), id.UserID(), push.Registration{
 		AppID: in.AppID, Platform: in.Platform, Provider: push.Provider(in.Provider),
-		Token: in.Token, Endpoint: in.Endpoint, AppVersion: in.AppVersion,
+		Token: in.Token, Endpoint: in.Endpoint, Relay: in.Relay, Handle: in.Handle, AppVersion: in.AppVersion,
 		Keys: push.Keys{P256DH: in.Keys.P256DH, Auth: in.Keys.Auth},
 	})
 	var input *push.InputError

@@ -33,5 +33,6 @@ server-test: ## Check formatting, vet and run the server's tests with the race d
 	@cd server && test -z "$$(gofmt -l .)" || { echo "These files need gofmt:"; gofmt -l .; exit 1; }
 	cd server && go vet ./... && go test -race ./...
 
-api-lint: ## Validate api/openapi.yaml (needs Node.js)
+api-lint: ## Validate api/openapi.yaml and api/relay.yaml (needs Node.js)
 	npx --yes @redocly/cli@2 lint api/openapi.yaml
+	npx --yes @redocly/cli@2 lint api/relay.yaml

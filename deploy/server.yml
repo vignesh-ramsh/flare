@@ -92,9 +92,17 @@ push:
   allow-private-endpoints: false
 
   # Android (Firebase) and iOS (Apple) push needs the credentials of the app's
-  # publisher. For your own branded app, list its keys here; for the official apps,
-  # a push relay does it (not available yet). Without an entry, devices of an app can
-  # use Web Push or UnifiedPush only.
+  # publisher. For your own branded app, list its keys here. For an app you don't
+  # publish, a push relay run by its publisher does it: list the relays you trust
+  # under allowed-relays. Without either, devices of an app can use Web Push or
+  # UnifiedPush only.
+  #
+  # Relays this server may ask to wake devices. A device can register through a relay
+  # only if it is listed here. A relay is told an opaque handle, subscription and
+  # message ID, and never the topic or the content. (The official relay will be listed
+  # here once the project runs one.)
+  # allowed-relays:
+  #   - https://push.example.org
   # apps:
   #   - app-id: com.acme.alerts                    # Android application ID and Apple bundle ID
   #     fcm-credentials: /etc/flare/acme-fcm.json  # service account key from the Firebase console

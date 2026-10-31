@@ -328,11 +328,19 @@ the server has to know **which app** a device is running before it can push to i
   whoever publishes that app and holds that app's keys. It is the same `flare` binary in `relay` mode.
 - **No push:** otherwise the device only gets messages over its live socket and on catch-up.
 
-> **Implemented:** direct push (FCM, APNs), Web Push and UnifiedPush, with the device API of §6. The relay
-> is not built yet. The direct senders talk to Google and Apple with plain HTTP clients rather than the
-> `firebase.google.com/go` and `apns2` libraries: it is two requests each, and it avoids a large dependency
-> tree. FCM and APNs have been tested against fakes of the real services only; neither has been run
-> against Google or Apple.
+> **Implemented:** direct push (FCM, APNs), Web Push, UnifiedPush and the relay, with the device API of §6
+> and the relay API in [`api/relay.yaml`](../api/relay.yaml). The direct senders talk to Google and Apple with
+> plain HTTP clients rather than the `firebase.google.com/go` and `apns2` libraries: it is two requests each,
+> and it avoids a large dependency tree. FCM and APNs have been tested against fakes of the real services
+> only; neither has been run against Google or Apple.
+>
+> The relay differs from the diagram below in small ways. The app also gets a *secret* with its handle,
+> which it uses to revoke the handle. A wake request carries the message's priority and the time to live as
+> well, so that the notification is as urgent as the message and stops being worth sending when it does. The
+> relay answers `404` when the handle is unknown or the push service says the device is gone (it then removes
+> the handle), which makes the server forget the device; the app registers again. Registering a token the
+> relay already has replaces its handle. The relay limits wake-ups per handle and per client address
+> (`relay.*` settings), and keeps its handles in a database of its own, only as hashes.
 
 ```mermaid
 sequenceDiagram
@@ -411,7 +419,7 @@ server handlers and generated client code.
 | `GET` | `/v1/messages/{id}` | Fetch one message (used after a push wake-up) |
 | `DELETE` | `/v1/messages/{id}` | Retract a message (emits `message_deleted`; not implemented yet) |
 | `GET` | `/v1/config` | Public server info: name and logo (runtime branding), API version, feature flags, auth and push modes |
-| `POST` | `/v1/devices` | Register a device: `app_id`, platform, provider and its token or endpoint (relay + handle: not yet) |
+| `POST` | `/v1/devices` | Register a device: `app_id`, platform, provider and its token or endpoint, or a relay and handle |
 | `PUT` | `/v1/devices/{id}/subscriptions` | Replace the device's push subscriptions; returns opaque subscription ids. Needs the device secret |
 | `DELETE` | `/v1/devices/{id}` | Forget a device. Needs the device secret |
 | `POST` | `/v1/auth/login` | Log in with a user name and password (Basic auth); returns an access token |
@@ -419,8 +427,8 @@ server handlers and generated client code.
 | `GET` / `DELETE` | `/v1/account/tokens`, `/v1/account/tokens/{id}` | List and revoke one's own access tokens |
 | `PUT` / `DELETE` | `/v1/topics/{topic}` | Reserve a topic, set its ACL |
 | `GET` | `/v1/files/{id}` | Download an attachment |
-| `POST` | `/v1/handles` | Relay mode only: an app registers its push token and gets a handle |
-| `POST` | `/v1/wake` | Relay mode only: a server asks the relay to wake a handle |
+| `POST` / `DELETE` | `/v1/handles`, `/v1/handles/{handle}` | Relay mode only (`flare relay`): an app registers its push token and gets a handle and a secret; revokes the handle with the secret |
+| `POST` | `/v1/wake` | Relay mode only: a server asks the relay to wake a handle (contract: [`api/relay.yaml`](../api/relay.yaml)) |
 | `GET` | `/healthz`, `/readyz`, `/metrics` | Health checks and Prometheus metrics |
 
 **Implemented so far:** publishing (`/{topic}`, `/v1/messages`), the three ways to subscribe, `/v1/config`,
@@ -500,7 +508,8 @@ time; the same checks end open `/json` and `/sse` streams.
   content, so no push service sees what was published. (Per topic: not yet.) A poll request holds a
   subscription ID and a message ID, and no topic. Without it, a message that fits goes in the notification;
   Web Push is encrypted for the device (RFC 8291), but FCM, APNs and a UnifiedPush distributor can read it.
-  Relay wake-ups are always content-free (§5.3).
+  Relay wake-ups are always content-free (§5.3): the relay is told a handle, a subscription ID, a message ID
+  and a priority, and a test checks that no topic, title or text can reach it.
 - **Push endpoints are user-supplied URLs.** The server sends requests to Web Push and UnifiedPush endpoints
   that users register, which is a way to make it send requests into its own network. So it accepts only
   https URLs at public addresses, and checks the address it actually connects to (a name that resolves to a
@@ -512,7 +521,8 @@ time; the same checks end open `/json` and `/sse` streams.
   is kept), sent in the `Device-Secret` header. A server that lets nobody in anonymously refuses anonymous
   devices.
 - **Relays.** The server only calls relays on `push.allowed-relays`, so device registrations cannot
-  point it at arbitrary URLs.
+  point it at arbitrary URLs. A relay keeps only the hash of each handle, so a copy of its database does
+  not let anyone wake a device; it does hold the push tokens, which the push service needs.
 - **End-to-end encryption (optional, per topic).**
   - The subscribing client generates a random 256-bit key and shares it via a QR code or a link like
     `flare://subscribe/flare.example.com/alerts#key=…` (the scheme comes from the brand). The URL
@@ -754,8 +764,8 @@ push:
   #     apns-key-id: ABC123
   #     apns-team-id: TEAM123
   #     apns-sandbox: false
-  # Not implemented yet: relays allowed to wake other apps. The official relay will
-  # serve the official apps; remove it if you don't use them.
+  # Relays allowed to wake other apps. The official relay will serve the official
+  # apps; remove it if you don't use them. (There is no official relay yet.)
   # allowed-relays:
   #   - https://push.flare.example
 
@@ -1147,7 +1157,7 @@ rights). This pairs naturally with white-labelling:
 (**done**). Still to do: rate limits for publishing, and abuse protection.
 - CLI: `flare publish`, `flare subscribe` (**done**).
 - Push notifications, server side: device registration, FCM, APNs, Web Push and UnifiedPush, with a durable
-  queue and retries (**done**, FCM and APNs only against fakes). Still to do: the relay.
+  queue and retries (**done**, FCM and APNs only against fakes), and the relay (`flare relay`, **done**).
 - Android app (FCM + instant-delivery mode) and desktop apps (tray + native notifications).
 
 **Phase 2 — Full platform coverage**

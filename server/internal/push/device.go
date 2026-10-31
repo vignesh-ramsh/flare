@@ -53,6 +53,24 @@ var (
 	apnsRE  = regexp.MustCompile(`^[0-9a-fA-F]{32,200}$`)
 )
 
+// CheckToken validates the push token of an FCM or APNs device and returns it in
+// the form it is stored. The error is an *InputError about "token".
+func CheckToken(p Provider, token string) (string, error) {
+	switch p {
+	case FCM:
+		if !looksLikeFCMToken(token) {
+			return "", bad("token", "must be the registration token Firebase gave the app")
+		}
+		return token, nil
+	case APNs:
+		if !apnsRE.MatchString(token) {
+			return "", bad("token", "must be the device token Apple gave the app, in hexadecimal")
+		}
+		return strings.ToLower(token), nil
+	}
+	return "", bad("provider", "must be fcm or apns")
+}
+
 // looksLikeFCMToken accepts what an FCM registration token can be: 16 to 4096
 // printable characters, no spaces. The format is Google's to change, so this
 // only rules out what can't be a token.
@@ -113,6 +131,8 @@ type Registration struct {
 	Token      string // FCM registration token, or APNs device token
 	Endpoint   string // Web Push or UnifiedPush endpoint
 	Keys       Keys   // Web Push
+	Relay      string // the relay's address, for a device that registered with one
+	Handle     string // the relay's handle for the device
 	AppVersion string
 }
 
@@ -213,20 +233,15 @@ func (s *Service) validate(r Registration) (Device, error) {
 		return d, bad("app_version", "must be at most %d characters", MaxAppVersionLength)
 	}
 	switch r.Provider {
-	case FCM:
-		if !looksLikeFCMToken(r.Token) {
-			return d, bad("token", "must be the registration token Firebase gave the app")
+	case FCM, APNs:
+		token, err := CheckToken(r.Provider, r.Token)
+		if err != nil {
+			return d, err
 		}
-		d.Target = r.Token
-		return d, noEndpoint(r)
-	case APNs:
-		if !apnsRE.MatchString(r.Token) {
-			return d, bad("token", "must be the device token Apple gave the app, in hexadecimal")
-		}
-		d.Target = strings.ToLower(r.Token)
+		d.Target = token
 		return d, noEndpoint(r)
 	case WebPush:
-		if r.Token != "" {
+		if r.Token != "" || r.Relay != "" || r.Handle != "" {
 			return d, bad("token", "is not used with webpush; give endpoint and keys")
 		}
 		if _, err := CheckEndpoint(r.Endpoint, s.cfg.AllowPrivateEndpoints); err != nil {
@@ -238,8 +253,21 @@ func (s *Service) validate(r Registration) (Device, error) {
 		}
 		d.Target, d.Keys = r.Endpoint, keys
 		return d, nil
+	case Relay:
+		if r.Token != "" || r.Endpoint != "" || r.Keys != (Keys{}) {
+			return d, bad("provider", "relay takes a relay and a handle, not a token, endpoint or keys")
+		}
+		relay, err := NormalizeRelayURL(r.Relay)
+		if err != nil {
+			return d, bad("relay", "%v", err)
+		}
+		if !ValidHandle(r.Handle) {
+			return d, bad("handle", "must be the handle the relay gave the app (16 to 128 letters, digits, - or _)")
+		}
+		d.Target, d.RelayURL = r.Handle, relay
+		return d, nil
 	case UnifiedPush:
-		if r.Token != "" || r.Keys != (Keys{}) {
+		if r.Token != "" || r.Keys != (Keys{}) || r.Relay != "" || r.Handle != "" {
 			return d, bad("provider", "unifiedpush takes only an endpoint; a distributor that gives keys should be registered as webpush, which encrypts the notification")
 		}
 		if _, err := CheckEndpoint(r.Endpoint, s.cfg.AllowPrivateEndpoints); err != nil {
@@ -248,13 +276,13 @@ func (s *Service) validate(r Registration) (Device, error) {
 		d.Target = r.Endpoint
 		return d, nil
 	}
-	return d, bad("provider", "must be one of fcm, apns, webpush, unifiedpush")
+	return d, bad("provider", "must be one of fcm, apns, webpush, unifiedpush, relay")
 }
 
 // noEndpoint refuses fields that don't belong to the provider, instead of
 // ignoring them: a client that sends them has misunderstood what it is doing.
 func noEndpoint(r Registration) error {
-	if r.Endpoint != "" || r.Keys != (Keys{}) {
+	if r.Endpoint != "" || r.Keys != (Keys{}) || r.Relay != "" || r.Handle != "" {
 		return bad("endpoint", "is not used with %s; give token", r.Provider)
 	}
 	return nil
