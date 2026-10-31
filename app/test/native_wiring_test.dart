@@ -49,12 +49,8 @@ void main() {
       expect(manifest, contains('android.permission.INTERNET'));
     });
 
-    test('allows plain http in debug builds only', () {
-      expect(
-        read('android/app/src/debug/AndroidManifest.xml'),
-        contains('usesCleartextTraffic="true"'),
-      );
-      expect(manifest, isNot(contains('usesCleartextTraffic')));
+    test('allows plain http, as self-hosters on a home network often have no certificate', () {
+      expect(manifest, contains('android:usesCleartextTraffic="true"'));
     });
 
     test(
@@ -94,10 +90,10 @@ void main() {
       expect(plist, isNot(contains('<string>App</string>')));
     });
 
-    test('allows plain http on the local network only', () {
+    test('allows plain http, as self-hosters on a home network often have no certificate', () {
       final plist = read('ios/Runner/Info.plist');
-      expect(plist, contains('NSAllowsLocalNetworking'));
-      expect(plist, isNot(contains('NSAllowsArbitraryLoads')));
+      expect(plist, contains('NSAllowsArbitraryLoads'));
+      expect(plist, isNot(contains('NSAllowsLocalNetworking')));
     });
   });
 

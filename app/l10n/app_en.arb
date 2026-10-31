@@ -80,7 +80,8 @@
 
   "addTitle": "Subscribe to a topic",
   "addServerLabel": "Server",
-  "addServerHelper": "The address of the server, for example https://example.com",
+  "addServerHint": "https://example.com",
+  "addServerHelper": "The address of the server. Without http:// or https://, https is used.",
   "addTopicLabel": "Topic",
   "addTopicHelper": "Letters, digits, dashes and underscores",
   "addErrorServerRequired": "Enter the server's address",

@@ -40,6 +40,41 @@ void main() {
       expect(find.byType(BottomSheet), findsOneWidget);
     });
 
+    testApp('suggests an https address, and says https is the default', (
+      tester,
+      db,
+    ) async {
+      await pumpApp(tester, db, width: 390, location: '/add');
+
+      final field = tester.widget<TextField>(
+        find.descendant(of: _server, matching: find.byType(TextField)),
+      );
+      expect(field.decoration!.hintText, 'https://example.com');
+      expect(field.decoration!.helperText, contains('https is used'));
+    });
+
+    testApp('assumes https when the address has no scheme', (tester, db) async {
+      await pumpApp(tester, db, width: 390, location: '/add');
+      await tester.enterText(_server, 'push.example.org');
+      await tester.enterText(_topic, 'ops');
+      await tester.tap(_submit);
+      await settle(tester);
+
+      final servers = await tester.runAsync(() => db.select(db.servers).get());
+      expect(servers!.map((s) => s.url), contains('https://push.example.org'));
+    });
+
+    testApp('accepts a plain http server', (tester, db) async {
+      await pumpApp(tester, db, width: 390, location: '/add');
+      await tester.enterText(_server, 'http://192.168.1.5:8080');
+      await tester.enterText(_topic, 'home');
+      await tester.tap(_submit);
+      await settle(tester);
+
+      final servers = await tester.runAsync(() => db.select(db.servers).get());
+      expect(servers!.map((s) => s.url), contains('http://192.168.1.5:8080'));
+    });
+
     testApp('starts with the server the user already uses', (tester, db) async {
       await pumpApp(tester, db, width: 390, location: '/add');
 

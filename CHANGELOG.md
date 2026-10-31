@@ -56,3 +56,8 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   telling the user when a server cannot be reached or refuses the saved sign-in or a topic. The app now
   receives and keeps messages. Tested against an in-process fake and against the real server (CI builds
   it); there is no sign-in screen yet, so connections are anonymous.
+- Native projects: Android, iOS, macOS and Windows take their name and identifier from the brand output, and CI
+  builds all five platforms and checks each build's name and identifier (nothing has been run on a device or
+  an emulator). Servers may be reached over plain http as well as https, as in ntfy; an address typed without
+  a scheme means https and the app's examples show https. macOS gained the outgoing-network entitlement and
+  Android the INTERNET permission in release builds, without which the app could not reach any server.

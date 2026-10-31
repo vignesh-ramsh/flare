@@ -111,6 +111,7 @@ class _AddScreenState extends ConsumerState<AddScreen> {
                 onChanged: (_) => _serverEdited = true,
                 decoration: InputDecoration(
                   labelText: l10n.addServerLabel,
+                  hintText: l10n.addServerHint,
                   helperText: l10n.addServerHelper,
                   helperMaxLines: 2,
                 ),

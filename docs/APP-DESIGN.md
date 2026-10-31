@@ -26,6 +26,13 @@ These were proposed, reviewed against the mock-ups, and confirmed.
 5. **Messages are cards, not chat bubbles.** A message has a priority, a title, text, tags and a link,
    which a bubble can't show. Only the user's own replies are bubbles.
 
+6. **Plain `http://` servers are allowed everywhere**, as in ntfy: many people self-host on a home network
+   with no certificate. An address typed without a scheme means https, and every example and placeholder in
+   the app shows https. The price is that a token or password sent to an http server crosses the network in
+   the clear, so when sign-in is built (step 4) the app must warn before sending one over http. Android sets
+   `usesCleartextTraffic`, iOS sets `NSAllowsArbitraryLoads` (App Review may ask why: the servers are chosen
+   by the user).
+
 What is left out because the server does not support it yet: action buttons, attachments and images,
 Markdown, delayed delivery, end-to-end encryption. The screens leave room for them; nothing is drawn that
 the server would refuse.
@@ -133,9 +140,6 @@ fails the build if one does.
 
 ## Not yet decided
 
-- Plain `http://` servers on phones. Today Android allows them in debug builds only and iOS only on the local
-  network, so a self-hosted server needs https (or a local address on iOS) until this is decided. Desktop apps
-  allow any address.
 - A tablet-specific layout for very wide Medium windows (a foldable half-open) beyond the rules above.
 - Whether Inbox should group by day or by topic by default.
 - Reply from a notification on every platform that allows it, and what a failed reply looks like.
@@ -170,8 +174,8 @@ What exists, so the page and the code agree.
 - **Target size** follows the platform (40 dp on Windows, macOS and Linux, 48 dp elsewhere), not whether a
   mouse is attached.
 - **Data location:** the database is in the application-support folder, not the user's Documents.
-- **Native projects:** every platform takes its name and identifier from the brand output; CI builds each
-  one and checks the result (see [app/README.md](../app/README.md)). The URL scheme is defined for
+- **Native projects:** every platform takes its name and identifier from the brand output and allows
+  plain http (decision 6); CI builds each one and checks the result (see [app/README.md](../app/README.md)). The URL scheme is defined for
   Android but no platform registers it yet; that comes with deep links in step 3. macOS needed the
   `network.client` entitlement for the sandboxed app to reach any server, and Android's main manifest
   needed the INTERNET permission, which release builds lacked.
