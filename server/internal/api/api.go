@@ -16,6 +16,7 @@ import (
 	"github.com/vignesh-ramsh/flare/server/internal/config"
 	"github.com/vignesh-ramsh/flare/server/internal/push"
 	"github.com/vignesh-ramsh/flare/server/internal/realtime"
+	"github.com/vignesh-ramsh/flare/server/internal/settings"
 	"github.com/vignesh-ramsh/flare/server/internal/theme"
 )
 
@@ -28,8 +29,11 @@ type Deps struct {
 	Push *push.Service
 	// Themes are the themes the server offers its apps. Nil means it offers none.
 	Themes *theme.Service
-	Config config.Config
-	Log    *slog.Logger
+	// Settings holds the settings an administrator may change while the server runs. Nil
+	// means none may, and Config is what the server uses.
+	Settings *settings.Manager
+	Config   config.Config
+	Log      *slog.Logger
 
 	// Stream tunes the streaming endpoints. Zero values give the defaults.
 	Stream realtime.StreamOptions
@@ -79,6 +83,9 @@ func (a *API) routes() []route {
 		{"GET /v1/messages/{id}", a.getMessage},
 		{"GET /v1/themes", a.listThemes},
 		{"GET /v1/themes/schema", a.themeSchema},
+		{"GET /v1/admin/settings", a.listSettings},
+		{"PUT /v1/admin/settings/{key}", a.putSetting},
+		{"DELETE /v1/admin/settings/{key}", a.resetSetting},
 		{"POST /v1/admin/themes", a.createTheme},
 		{"PUT /v1/admin/themes/{name}", a.replaceTheme},
 		{"DELETE /v1/admin/themes/{name}", a.deleteTheme},

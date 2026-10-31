@@ -723,3 +723,51 @@ func TestMayAsActsForSomeoneWhoIsNotMakingARequest(t *testing.T) {
 		t.Error("a deleted user still allowed")
 	}
 }
+
+func TestWhatIsAllowedByDefaultCanChangeWhileRunning(t *testing.T) {
+	s, _, _ := setup(t, func(c *auth.ServiceConfig) { c.Default = auth.ReadWrite })
+	anon := auth.Identity{}
+	if err := s.Authorize(ctx, anon, "alerts", auth.Write); err != nil {
+		t.Fatalf("open server: %v", err)
+	}
+
+	s.SetDefault(auth.DenyAll)
+	if s.Default() != auth.DenyAll {
+		t.Errorf("Default = %v", s.Default())
+	}
+	if err := s.Authorize(ctx, anon, "alerts", auth.Write); err == nil {
+		t.Error("an anonymous visitor may write on a closed server")
+	}
+	if ok, err := s.MayAs(ctx, "nobody", "alerts", auth.Read); err != nil || ok {
+		t.Errorf("MayAs on a closed server: %v %v", ok, err)
+	}
+
+	s.SetDefault(auth.ReadOnly)
+	if err := s.Authorize(ctx, anon, "alerts", auth.Read); err != nil {
+		t.Errorf("read on a read-only server: %v", err)
+	}
+	if err := s.Authorize(ctx, anon, "alerts", auth.Write); err == nil {
+		t.Error("write on a read-only server")
+	}
+}
+
+func TestChangingTheDefaultWhileAuthorizingIsSafe(t *testing.T) {
+	s, _, _ := setup(t)
+	var wg sync.WaitGroup
+	for i := 0; i < 4; i++ {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 100; j++ {
+				s.SetDefault([]auth.Access{auth.DenyAll, auth.ReadWrite}[j%2])
+			}
+		}()
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 100; j++ {
+				_ = s.Authorize(ctx, auth.Identity{}, "alerts", auth.Read)
+			}
+		}()
+	}
+	wg.Wait()
+}

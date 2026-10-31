@@ -6,6 +6,7 @@ package realtime
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/vignesh-ramsh/flare/server/internal/broker"
@@ -64,22 +65,51 @@ type Hub struct {
 	store  store.Store
 	broker broker.Broker
 	opt    Options
+	lim    atomic.Pointer[limits]
 
 	mu  sync.Mutex // serialises Publish
 	gen id.Generator
 }
 
+// limits are the two settings an administrator may change while the server runs.
+type limits struct {
+	ttl     time.Duration
+	maxSize int
+}
+
 // NewHub returns a Hub that stores messages in st and delivers through br.
 func NewHub(st store.Store, br broker.Broker, opt Options) *Hub {
 	opt.fill()
-	return &Hub{store: st, broker: br, opt: opt}
+	h := &Hub{store: st, broker: br, opt: opt}
+	h.lim.Store(&limits{ttl: opt.TTL, maxSize: opt.MaxMessageSize})
+	return h
+}
+
+// SetLimits changes how long messages are kept and the largest message body, from the next
+// message on. A value that is not positive leaves that limit as it is.
+func (h *Hub) SetLimits(ttl time.Duration, maxMessageSize int) {
+	cur := *h.lim.Load()
+	if ttl > 0 {
+		cur.ttl = ttl
+	}
+	if maxMessageSize > 0 {
+		cur.maxSize = maxMessageSize
+	}
+	h.lim.Store(&cur)
+}
+
+// Limits returns how long messages are kept and the largest message body now.
+func (h *Hub) Limits() (ttl time.Duration, maxMessageSize int) {
+	l := h.lim.Load()
+	return l.ttl, l.maxSize
 }
 
 // Publish validates d, stores it, and delivers it to live subscribers. A refused
 // draft is reported as a *message.Problem and nothing is stored or delivered.
 func (h *Hub) Publish(ctx context.Context, d message.Draft) (message.Message, error) {
 	d.Normalize()
-	if err := d.Validate(h.opt.MaxMessageSize); err != nil {
+	ttl, maxSize := h.Limits()
+	if err := d.Validate(maxSize); err != nil {
 		return message.Message{}, err
 	}
 
@@ -89,7 +119,7 @@ func (h *Hub) Publish(ctx context.Context, d message.Draft) (message.Message, er
 	m := message.Message{
 		ID:       h.gen.New(now),
 		Time:     now.Unix(),
-		Expires:  now.Add(h.opt.TTL).Unix(),
+		Expires:  now.Add(ttl).Unix(),
 		Event:    message.EventMessage,
 		Topic:    d.Topic,
 		Title:    d.Title,

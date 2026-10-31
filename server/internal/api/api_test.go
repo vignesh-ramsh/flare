@@ -28,6 +28,7 @@ import (
 	"github.com/vignesh-ramsh/flare/server/internal/id"
 	"github.com/vignesh-ramsh/flare/server/internal/message"
 	"github.com/vignesh-ramsh/flare/server/internal/realtime"
+	"github.com/vignesh-ramsh/flare/server/internal/settings"
 	"github.com/vignesh-ramsh/flare/server/internal/store"
 	"github.com/vignesh-ramsh/flare/server/internal/theme"
 )
@@ -91,8 +92,12 @@ func newEnv(t *testing.T, edit ...func(*config.Config)) *env {
 		HashParams: auth.Params{Time: 1, MemoryKiB: 64, Threads: 1}, // cheap, for tests
 	})
 	logs := &syncBuffer{}
+	live, err := settings.New(context.Background(), st, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
 	a := New(Deps{
-		Hub: hub, Auth: svc, Config: cfg, Themes: theme.NewService(st),
+		Hub: hub, Auth: svc, Config: cfg, Themes: theme.NewService(st), Settings: live,
 		Log:            slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
 		Stream:         realtime.StreamOptions{Heartbeat: 40 * time.Millisecond},
 		WSPingInterval: 40 * time.Millisecond,

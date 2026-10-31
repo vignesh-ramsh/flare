@@ -253,6 +253,101 @@ paths:
             application/json:
               schema: { type: object }
 
+  /v1/admin/settings:
+    get:
+      tags: [Admin]
+      summary: The server's settings an administrator may change
+      description: |
+        Needs an administrator. Each setting comes with its current `value`, the `default`
+        that the configuration file, environment and flags give (which resetting goes back
+        to), and whether an administrator has changed it (`overridden`).
+
+        Most settings apply at once. The push settings are read when the server starts: they
+        have `restart: true`, and `pending_restart` says that the value set differs from what
+        the running server uses. Where the server listens, its database, the proxies it trusts
+        and the push credentials are not here: they stay in the configuration file.
+      operationId: listSettings
+      security:
+        - bearerAuth: []
+        - basicAuth: []
+      responses:
+        "200":
+          description: The settings, in the groups to show them in.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [groups, settings, warnings]
+                properties:
+                  groups:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, label]
+                      properties:
+                        id: { type: string }
+                        label: { type: string }
+                  settings:
+                    type: array
+                    items: { $ref: "#/components/schemas/Setting" }
+                  warnings:
+                    type: array
+                    items: { type: string }
+                    description: Stored choices that could not be applied when the server started, and were left out.
+        default:
+          $ref: "#/components/responses/Error"
+
+  /v1/admin/settings/{key}:
+    put:
+      tags: [Admin]
+      summary: Change a setting
+      description: |
+        Needs an administrator. The value is checked together with the rest of the configuration,
+        and nothing changes unless it is all still valid. Setting a value the configuration already
+        has is the same as resetting it.
+      operationId: putSetting
+      security:
+        - bearerAuth: []
+        - basicAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SettingKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [value]
+              properties:
+                value:
+                  description: The new value, of the kind the setting's `type` says (text, a whole number, true or false, one of its `enum`, seconds, or a list of text).
+      responses:
+        "200":
+          description: The setting, as it is now.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Setting" }
+        default:
+          $ref: "#/components/responses/Error"
+    delete:
+      tags: [Admin]
+      summary: Take a setting back to what the configuration says
+      description: Needs an administrator.
+      operationId: resetSetting
+      security:
+        - bearerAuth: []
+        - basicAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SettingKey"
+      responses:
+        "200":
+          description: The setting, as it is now.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Setting" }
+        default:
+          $ref: "#/components/responses/Error"
+
   /v1/admin/themes:
     post:
       tags: [Admin, Themes]
@@ -677,6 +772,12 @@ components:
       description: The secret returned when the device was registered. It is the device's own credential, separate from any user's token.
 
   parameters:
+    SettingKey:
+      name: key
+      in: path
+      required: true
+      description: The setting's `key`, as `GET /v1/admin/settings` lists it, such as `branding.name`.
+      schema: { type: string }
     ThemeName:
       name: name
       in: path
@@ -899,6 +1000,29 @@ components:
               pattern: { type: string, examples: ["alerts-*"] }
               access: { type: string, enum: [read-write, read-only, write-only, deny-all] }
               scope: { type: string, enum: [user, everyone] }
+
+    Setting:
+      type: object
+      required: [key, group, label, help, type, restart, value, default, overridden, pending_restart]
+      properties:
+        key: { type: string, examples: ["branding.name"] }
+        group: { type: string, description: Which group of the list this setting belongs to. }
+        label: { type: string }
+        help: { type: string }
+        type:
+          type: string
+          enum: [string, int, bool, enum, seconds, list]
+        enum:
+          type: array
+          items: { type: string }
+          description: The values an `enum` setting may have.
+        min: { type: integer, description: "Least value of a number, or fewest characters of text." }
+        max: { type: integer, description: "Greatest value of a number, most characters of text, or most entries of a list." }
+        restart: { type: boolean, description: This setting takes effect only when the server next starts. }
+        value: { description: What is set now. }
+        default: { description: "What the configuration file, environment and flags say." }
+        overridden: { type: boolean, description: An administrator has changed it from `default`. }
+        pending_restart: { type: boolean, description: "`value` differs from what the running server uses, so it applies after a restart." }
 
     Theme:
       type: object

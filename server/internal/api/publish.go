@@ -101,13 +101,14 @@ func (a *API) publishRaw(w http.ResponseWriter, r *http.Request) {
 	// refused with a precise answer by the hub rather than silently cut short.
 	rc := http.NewResponseController(w)
 	_ = rc.SetReadDeadline(time.Now().Add(bodyReadTimeout))
-	r.Body = http.MaxBytesReader(w, r.Body, int64(a.Config.MessageSizeLimit)+1)
+	limit := a.config().MessageSizeLimit
+	r.Body = http.MaxBytesReader(w, r.Body, int64(limit)+1)
 	body, err := io.ReadAll(r.Body)
 	_ = rc.SetReadDeadline(time.Time{})
 	if err != nil {
 		var tooBig *http.MaxBytesError
 		if errors.As(err, &tooBig) {
-			writeError(w, apierr.TooLarge, "message is larger than the limit of "+strconv.Itoa(a.Config.MessageSizeLimit)+" bytes")
+			writeError(w, apierr.TooLarge, "message is larger than the limit of "+strconv.Itoa(limit)+" bytes")
 		} else {
 			writeError(w, apierr.InvalidBody, "could not read the request body")
 		}

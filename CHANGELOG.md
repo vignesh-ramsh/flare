@@ -110,4 +110,12 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   starts, when a server is added, when it returns to the foreground and when Appearance opens; an unchanged list
   is a 304. They are listed in Settings > Appearance under the server's name, work offline, and are dropped from
   the choice if the server drops them.
+- Server settings an administrator may change while the server runs (`GET /v1/admin/settings`,
+  `PUT` and `DELETE /v1/admin/settings/{key}`): the server's name, accent colour, app link scheme and public
+  address; what anyone may do by default; the largest message and how long messages are kept; and the push
+  switches. A change is checked together with the whole configuration, kept in the database, and shown beside
+  what the configuration file says, which resetting goes back to. Most apply at once; push is set up when the
+  server starts, so those say a restart is needed and show when what is running differs from what is set.
+  A stored choice that no longer applies is left out with a warning instead of stopping the server. Where the
+  server listens, its database, trusted proxies and push credentials stay in the file.
 

@@ -625,3 +625,54 @@ func TestStoredIsCalledOncePerStoredMessageAndNotForRefusedOnes(t *testing.T) {
 		t.Errorf("Stored called %d times, want 2", calls)
 	}
 }
+
+func TestTheLimitsCanChangeWhileRunning(t *testing.T) {
+	clk := newClock()
+	h, _ := newHub(t, Options{TTL: time.Hour, MaxMessageSize: 100, Now: clk.Now})
+	if ttl, size := h.Limits(); ttl != time.Hour || size != 100 {
+		t.Fatalf("limits = %v, %d", ttl, size)
+	}
+	if got := mustPublish(t, h, "t", "a message of some length"); got.Expires-got.Time != 3600 {
+		t.Errorf("kept %d seconds", got.Expires-got.Time)
+	}
+
+	h.SetLimits(2*time.Minute, 10)
+	if _, err := h.Publish(context.Background(), draft("t", "a message of some length")); err == nil {
+		t.Error("a message over the new limit was accepted")
+	}
+	if got := mustPublish(t, h, "t", "short"); got.Expires-got.Time != 120 {
+		t.Errorf("after the change a message is kept %d seconds", got.Expires-got.Time)
+	}
+
+	// A value that is not positive leaves that limit alone.
+	h.SetLimits(0, 50)
+	if ttl, size := h.Limits(); ttl != 2*time.Minute || size != 50 {
+		t.Errorf("limits = %v, %d", ttl, size)
+	}
+	h.SetLimits(time.Hour, -1)
+	if ttl, size := h.Limits(); ttl != time.Hour || size != 50 {
+		t.Errorf("limits = %v, %d", ttl, size)
+	}
+}
+
+func TestChangingTheLimitsWhilePublishingIsSafe(t *testing.T) {
+	h, _ := newHub(t, Options{})
+	var wg sync.WaitGroup
+	for i := 0; i < 4; i++ {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 50; j++ {
+				h.SetLimits(time.Duration(j+1)*time.Minute, 10+j)
+			}
+		}()
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 50; j++ {
+				_, _ = h.Publish(context.Background(), draft("t", "x"))
+				h.Limits()
+			}
+		}()
+	}
+	wg.Wait()
+}

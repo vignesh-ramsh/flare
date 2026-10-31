@@ -19,6 +19,7 @@ import (
 	"github.com/vignesh-ramsh/flare/server/internal/config"
 	"github.com/vignesh-ramsh/flare/server/internal/push"
 	"github.com/vignesh-ramsh/flare/server/internal/realtime"
+	"github.com/vignesh-ramsh/flare/server/internal/settings"
 	"github.com/vignesh-ramsh/flare/server/internal/store"
 	"github.com/vignesh-ramsh/flare/server/internal/theme"
 )
@@ -50,10 +51,6 @@ func New(ctx context.Context, cfg config.Config, log *slog.Logger) (*Server, err
 	if err != nil {
 		return nil, err
 	}
-	access, err := auth.ParseAccess(cfg.Auth.DefaultAccess)
-	if err != nil {
-		return nil, err
-	}
 	proxies, err := auth.ParseProxies(cfg.TrustedProxies)
 	if err != nil {
 		return nil, err
@@ -63,31 +60,58 @@ func New(ctx context.Context, cfg config.Config, log *slog.Logger) (*Server, err
 		return nil, fmt.Errorf("open the message store: %w", err)
 	}
 
+	// What an administrator has changed from the Admin UI is laid over the configuration.
+	// Most of it applies while the server runs; the rest (push) is read here, at start.
+	live, err := settings.New(ctx, st, cfg)
+	if err != nil {
+		st.Close()
+		return nil, fmt.Errorf("read the settings: %w", err)
+	}
+	for _, w := range live.Warnings {
+		log.Warn(w)
+	}
+	run := live.Config()
+	access, err := auth.ParseAccess(run.Auth.DefaultAccess)
+	if err != nil {
+		st.Close()
+		return nil, err
+	}
+
 	authSvc := auth.NewService(st, auth.ServiceConfig{Default: access, Proxies: proxies})
 
 	var pushSvc *push.Service
 	var dispatcher *push.Dispatcher
-	hubOpts := realtime.Options{TTL: cfg.CacheDuration, MaxMessageSize: cfg.MessageSizeLimit}
-	if cfg.Push.Enabled {
-		registry, err := buildRegistry(ctx, cfg, st, log)
+	hubOpts := realtime.Options{TTL: run.CacheDuration, MaxMessageSize: run.MessageSizeLimit}
+	if run.Push.Enabled {
+		registry, err := buildRegistry(ctx, run, st, log)
 		if err != nil {
 			st.Close()
 			return nil, err
 		}
-		pushSvc = push.NewService(st, authSvc, registry, push.ServiceConfig{AllowPrivateEndpoints: cfg.Push.AllowPrivateEndpoints})
-		dispatcher = push.NewDispatcher(st, registry, authSvc, push.DispatcherConfig{ContentFree: cfg.Push.ContentFree, Log: log})
+		pushSvc = push.NewService(st, authSvc, registry, push.ServiceConfig{AllowPrivateEndpoints: run.Push.AllowPrivateEndpoints})
+		dispatcher = push.NewDispatcher(st, registry, authSvc, push.DispatcherConfig{ContentFree: run.Push.ContentFree, Log: log})
 		hubOpts.Stored = dispatcher.Wake
-		log.Info("push notifications are on", "services", registry.Names(), "content_free", cfg.Push.ContentFree)
+		log.Info("push notifications are on", "services", registry.Names(), "content_free", run.Push.ContentFree)
 	}
 
 	br := broker.NewInProc()
 	hub := realtime.NewHub(st, br, hubOpts)
+	live.Subscribe(func(old, cur config.Config) {
+		if cur.Auth.DefaultAccess != old.Auth.DefaultAccess {
+			if a, err := auth.ParseAccess(cur.Auth.DefaultAccess); err == nil { // checked before it was accepted
+				authSvc.SetDefault(a)
+			}
+		}
+		if cur.CacheDuration != old.CacheDuration || cur.MessageSizeLimit != old.MessageSizeLimit {
+			hub.SetLimits(cur.CacheDuration, cur.MessageSizeLimit)
+		}
+	})
 	shutdown, endStreams := context.WithCancel(context.Background())
 	return &Server{
 		cfg: cfg, log: log, store: st, broker: br, hub: hub, dispatcher: dispatcher,
 		api: api.New(api.Deps{
 			Hub: hub, Config: cfg, Log: log, Shutdown: shutdown, Auth: authSvc, Push: pushSvc,
-			Themes: theme.NewService(st),
+			Themes: theme.NewService(st), Settings: live,
 		}),
 		shutdown: shutdown, endStreams: endStreams,
 		purgeEvery: time.Minute,

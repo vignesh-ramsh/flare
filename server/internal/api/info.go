@@ -32,13 +32,14 @@ func (a *API) featuresOf() []string {
 
 // index is GET /: a hint for someone who opened the server in a browser.
 func (a *API) index(w http.ResponseWriter, r *http.Request) {
-	base := a.Config.BaseURL
+	cfg := a.config()
+	base := cfg.BaseURL
 	if base == "" {
 		base = "http://" + r.Host
 	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	fmt.Fprintf(w, "%s is running.\n\nPublish:   curl -d \"hello\" %s/mytopic\nSubscribe: curl -s %s/mytopic/json\n",
-		a.Config.Branding.Name, base, base)
+		cfg.Branding.Name, base, base)
 }
 
 // healthz is GET /healthz: the process is up.
@@ -64,7 +65,7 @@ func (a *API) readyz(w http.ResponseWriter, r *http.Request) {
 // serverConfig is GET /v1/config: what an app needs to know to show and use this
 // server. It reveals nothing an anonymous visitor couldn't find out anyway.
 func (a *API) serverConfig(w http.ResponseWriter, r *http.Request) {
-	c := a.Config
+	c := a.config()
 	var body struct {
 		APIVersion   int      `json:"api_version"`
 		Name         string   `json:"name"`

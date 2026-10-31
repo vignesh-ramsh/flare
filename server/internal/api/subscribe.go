@@ -126,7 +126,7 @@ func (a *API) websocket(w http.ResponseWriter, r *http.Request) {
 			return a.Auth.AuthenticateToken(ctx, token, ip)
 		},
 		Revalidate:     a.Auth.Revalidate,
-		MaxMessageSize: a.Config.MessageSizeLimit,
+		MaxMessageSize: a.config().MessageSizeLimit,
 		PingInterval:   a.WSPingInterval,
 		WriteTimeout:   a.Stream.WriteTimeout,
 		Log:            a.Log,

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 )
@@ -74,6 +75,10 @@ type Service struct {
 	hasher   *Hasher
 	throttle *Throttle
 
+	// def is what is allowed where no rule says otherwise. An administrator may change it
+	// while the server runs.
+	def atomic.Pointer[Access]
+
 	mu      sync.Mutex
 	touched map[string]time.Time // token ID -> when its last-used time was last written
 }
@@ -85,16 +90,23 @@ func NewService(acc Accounts, cfg ServiceConfig) *Service {
 	cfg.fill()
 	th := NewThrottle(cfg.FailureLimit, cfg.FailureWindow)
 	th.now = cfg.Now
-	return &Service{
+	s := &Service{
 		acc: acc, cfg: cfg,
 		hasher:   NewHasher(cfg.HashParams, cfg.MaxHashes),
 		throttle: th,
 		touched:  map[string]time.Time{},
 	}
+	def := cfg.Default
+	s.def.Store(&def)
+	return s
 }
 
 // Default returns what the server allows where no rule says otherwise.
-func (s *Service) Default() Access { return s.cfg.Default }
+func (s *Service) Default() Access { return *s.def.Load() }
+
+// SetDefault changes what the server allows where no rule says otherwise, from the next
+// request on. Connections that are open notice within the interval at which they re-check.
+func (s *Service) SetDefault(a Access) { s.def.Store(&a) }
 
 // ClientIP returns the address a request really comes from.
 func (s *Service) ClientIP(r *http.Request) string { return s.cfg.Proxies.ClientIP(r) }
@@ -262,7 +274,7 @@ func (s *Service) Authorize(ctx context.Context, id Identity, topic string, p Pe
 	if err != nil {
 		return err
 	}
-	if Decide(rules, id.UserID(), topic, s.cfg.Default).Allows(p) {
+	if Decide(rules, id.UserID(), topic, s.Default()).Allows(p) {
 		return nil
 	}
 	if id.Anonymous() {
@@ -292,7 +304,7 @@ func (s *Service) MayAs(ctx context.Context, userID, topic string, p Permission)
 	if err != nil {
 		return false, err
 	}
-	return Decide(rules, userID, topic, s.cfg.Default).Allows(p), nil
+	return Decide(rules, userID, topic, s.Default()).Allows(p), nil
 }
 
 // MayRead is MayAs for reading, which is what a device's owner needs to be able
