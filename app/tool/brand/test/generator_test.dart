@@ -555,4 +555,109 @@ void main() {
       expect(result.exitCode, 0, reason: '${result.stdout}${result.stderr}');
     });
   });
+
+  group('keeping the program name in step', () {
+    const linuxCmake = '''
+cmake_minimum_required(VERSION 3.13)
+# comment that mentions set(BINARY_NAME "x")
+set(BINARY_NAME "flare")
+set(APPLICATION_ID "com.example.Flare")
+''';
+
+    test('rewrites the BINARY_NAME line and nothing else', () {
+      expect(
+        pinBinaryName(linuxCmake, 'acme'),
+        linuxCmake.replaceFirst('"flare"', '"acme"'),
+      );
+    });
+
+    test('leaves a line that is already right as it is', () {
+      expect(pinBinaryName(linuxCmake, 'flare'), linuxCmake);
+    });
+
+    test('copes with spacing, as Flutter\'s own tool does', () {
+      expect(
+        pinBinaryName('  set(BINARY_NAME   "old"  )\n', 'new'),
+        '  set(BINARY_NAME   "new"  )\n',
+      );
+    });
+
+    test('says there is no such line', () {
+      expect(pinBinaryName('project(runner)\n', 'acme'), isNull);
+      expect(pinBinaryName('# set(BINARY_NAME "flare")\n', 'acme'), isNull);
+    });
+
+    test(
+      'is written into the desktop projects when the brand is generated',
+      () {
+        final app = tempDir();
+        for (final platform in ['linux', 'windows']) {
+          File(p.join(app.path, platform, 'CMakeLists.txt'))
+            ..createSync(recursive: true)
+            ..writeAsStringSync(linuxCmake);
+        }
+
+        writeOutputs(app, acme);
+
+        for (final platform in ['linux', 'windows']) {
+          final cmake = File(
+            p.join(app.path, platform, 'CMakeLists.txt'),
+          ).readAsStringSync();
+          final binary = RegExp(
+            r'set\(BRAND_BINARY_NAME "(.*)"\)',
+          ).firstMatch(text(acme, '$platform/brand.cmake'))!.group(1);
+          expect(
+            cmake,
+            contains('set(BINARY_NAME "$binary")'),
+            reason: platform,
+          );
+          expect(cmake, contains('set(APPLICATION_ID "com.example.Flare")'));
+        }
+      },
+    );
+
+    test(
+      'a second run changes nothing, and switching brands switches the name',
+      () {
+        final app = tempDir();
+        final cmake = File(p.join(app.path, 'linux', 'CMakeLists.txt'))
+          ..createSync(recursive: true)
+          ..writeAsStringSync(linuxCmake);
+
+        writeOutputs(app, flare);
+        final first = cmake.readAsStringSync();
+        writeOutputs(app, flare);
+        expect(cmake.readAsStringSync(), first);
+
+        writeOutputs(app, acme);
+        expect(cmake.readAsStringSync(), isNot(first));
+        writeOutputs(app, flare);
+        expect(cmake.readAsStringSync(), first);
+      },
+    );
+
+    test('is skipped where a platform folder does not exist', () {
+      final app = tempDir();
+      writeOutputs(
+        app,
+        acme,
+      ); // no CMakeLists.txt anywhere: nothing to pin, nothing fails
+      expect(
+        File(p.join(app.path, 'linux', 'CMakeLists.txt')).existsSync(),
+        isFalse,
+      );
+    });
+
+    test(
+      'stops when a desktop project has no BINARY_NAME line to keep in step',
+      () {
+        final app = tempDir();
+        File(p.join(app.path, 'linux', 'CMakeLists.txt'))
+          ..createSync(recursive: true)
+          ..writeAsStringSync('project(runner)\n');
+
+        expect(() => writeOutputs(app, acme), throwsStateError);
+      },
+    );
+  });
 }

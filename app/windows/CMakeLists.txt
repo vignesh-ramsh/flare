@@ -5,8 +5,13 @@ project(app LANGUAGES CXX)
 # The name and executable name come from the brand folder: `make brand` writes
 # brand.cmake. Never edit them here to rebrand the app.
 include("${CMAKE_CURRENT_SOURCE_DIR}/brand.cmake")
-# The name of the executable created for the application.
-set(BINARY_NAME "${BRAND_BINARY_NAME}")
+# The name of the executable created for the application. Flutter's own tool finds the
+# program to run by reading this literal line, so `make brand` writes it (it is `flare`
+# for the official brand, so building that changes nothing here).
+set(BINARY_NAME "flare")
+if(NOT BINARY_NAME STREQUAL BRAND_BINARY_NAME)
+  message(FATAL_ERROR "BINARY_NAME \"${BINARY_NAME}\" is out of date: run `make brand` from the repository root (the brand says \"${BRAND_BINARY_NAME}\").")
+endif()
 
 # Explicitly opt in to modern CMake behaviors to avoid warnings with recent
 # versions of CMake.

@@ -10,6 +10,10 @@ const generatedNotice =
 final class Outputs {
   final Map<String, Uint8List> files = {};
 
+  /// The program name to pin into the desktop projects' `CMakeLists.txt` (see
+  /// [pinnedCmakeFiles] in generator.dart).
+  String? binaryName;
+
   /// Adds a text file (UTF-8, `\n` line ends, one trailing newline).
   void text(String path, String content) =>
       bytes(path, utf8.encode(content.endsWith('\n') ? content : '$content\n'));

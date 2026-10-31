@@ -40,6 +40,28 @@ const ownedFiles = [
   'fastlane/metadata/en-US/marketing_url.txt',
 ];
 
+/// Desktop projects whose `set(BINARY_NAME "...")` line the generator keeps in step with the
+/// brand. Flutter's own tool finds the program to run (`flutter run -d linux`) by reading that
+/// literal line, and cannot follow a variable, so it cannot come from `brand.cmake` alone.
+/// This is the one edit the generator makes inside a file it does not own; the line holds the
+/// official brand's value in git, so building the official brand changes nothing.
+const pinnedCmakeFiles = ['linux/CMakeLists.txt', 'windows/CMakeLists.txt'];
+
+final _binaryNameLine = RegExp(
+  r'^(\s*set\(BINARY_NAME\s*")(.*)("\s*\)\s*)$',
+  multiLine: true,
+);
+
+/// Returns [cmake] with its `set(BINARY_NAME "...")` line set to [name], or null if it has
+/// no such line.
+String? pinBinaryName(String cmake, String name) {
+  if (!_binaryNameLine.hasMatch(cmake)) return null;
+  return cmake.replaceFirstMapped(
+    _binaryNameLine,
+    (m) => '${m.group(1)}$name${m.group(3)}',
+  );
+}
+
 bool _isOwned(String path) =>
     ownedFiles.contains(path) ||
     ownedDirectories.any((d) => p.isWithin(d, path));
@@ -55,6 +77,7 @@ Outputs renderBrand(Brand brand) {
   emitLinux(brand, icons, out);
   emitAssets(brand, icons, out, ico);
   emitFastlane(brand, out);
+  out.binaryName = brand.spec.binaryName;
   return out;
 }
 
@@ -88,5 +111,20 @@ void writeOutputs(Directory appDir, Outputs outputs) {
     final file = File(p.join(appDir.path, path));
     file.parent.createSync(recursive: true);
     file.writeAsBytesSync(Uint8List.fromList(bytes));
+  }
+
+  final name = outputs.binaryName;
+  if (name != null) {
+    for (final path in pinnedCmakeFiles) {
+      final file = File(p.join(appDir.path, path));
+      if (!file.existsSync()) continue;
+      final pinned = pinBinaryName(file.readAsStringSync(), name);
+      if (pinned == null) {
+        throw StateError(
+          '$path has no set(BINARY_NAME "...") line to keep in step with the brand',
+        );
+      }
+      if (pinned != file.readAsStringSync()) file.writeAsStringSync(pinned);
+    }
   }
 }

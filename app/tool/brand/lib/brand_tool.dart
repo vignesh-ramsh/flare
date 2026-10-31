@@ -2,7 +2,13 @@
 library;
 
 export 'src/generator.dart'
-    show renderBrand, writeOutputs, ownedDirectories, ownedFiles;
+    show
+        renderBrand,
+        writeOutputs,
+        ownedDirectories,
+        ownedFiles,
+        pinBinaryName,
+        pinnedCmakeFiles;
 export 'src/loader.dart' show Brand, loadBrand;
 export 'src/outputs.dart' show Outputs;
 export 'src/spec.dart'

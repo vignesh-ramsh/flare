@@ -8,6 +8,27 @@ import 'package:flutter_test/flutter_test.dart';
 /// the result.
 String read(String path) => File(path).readAsStringSync();
 
+/// Flutter's tool finds the program to run (`flutter run -d linux`) by reading a literal
+/// `set(BINARY_NAME "...")` line, which it cannot get from a variable. `make brand` writes
+/// that line, so it must equal the brand's program name; CMake also refuses to build if not.
+void expectProgramNamePinned(String cmake, String brandCmakePath) {
+  // The same pattern Flutter's tool uses.
+  final literal = RegExp(
+    r'^\s*set\(BINARY_NAME\s*"(.*)"\s*\)\s*$',
+    multiLine: true,
+  ).firstMatch(cmake);
+  expect(
+    literal,
+    isNotNull,
+    reason: 'Flutter reads this line to find the program',
+  );
+  final brand = RegExp(r'set\(BRAND_BINARY_NAME "(.*)"\)')
+      .firstMatch(read(brandCmakePath))!
+      .group(1);
+  expect(literal!.group(1), brand, reason: 'run make brand');
+  expect(cmake, contains('BINARY_NAME STREQUAL BRAND_BINARY_NAME'));
+}
+
 void main() {
   group('Android', () {
     final gradle = read('android/app/build.gradle.kts');
@@ -127,8 +148,7 @@ void main() {
         cmake,
         contains(r'include("${CMAKE_CURRENT_SOURCE_DIR}/brand.cmake")'),
       );
-      expect(cmake, contains(r'set(BINARY_NAME "${BRAND_BINARY_NAME}")'));
-      expect(cmake, isNot(contains('set(BINARY_NAME "app")')));
+      expectProgramNamePinned(cmake, 'windows/brand.cmake');
 
       expect(read('windows/runner/main.cpp'), contains('L"" BRAND_APP_NAME'));
       final rc = read('windows/runner/Runner.rc');
@@ -151,7 +171,7 @@ void main() {
         cmake,
         contains(r'include("${CMAKE_CURRENT_SOURCE_DIR}/brand.cmake")'),
       );
-      expect(cmake, contains(r'set(BINARY_NAME "${BRAND_BINARY_NAME}")'));
+      expectProgramNamePinned(cmake, 'linux/brand.cmake');
       expect(cmake, contains(r'set(APPLICATION_ID "${BRAND_APPLICATION_ID}")'));
       expect(
         read('linux/runner/my_application.cc'),

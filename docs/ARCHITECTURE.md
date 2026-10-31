@@ -906,9 +906,16 @@ that, neither upstream nor a rebrand ever edits them to change the brand:
 | Android | `android/brand.properties`; `android/app/src/brand/res/`: launcher, adaptive, monochrome and notification icons, colours; `google-services.json` | `build.gradle.kts` reads `applicationId`, sets the app label with `resValue` and the URL scheme with `manifestPlaceholders`, and adds the `brand/res` folder as a resource directory. The Kotlin package (`namespace`) never changes, so no source files move |
 | iOS | `ios/Flutter/Brand.xcconfig`; `AppIcon.appiconset` | `PRODUCT_BUNDLE_IDENTIFIER`, `DEVELOPMENT_TEAM` and display name; Info.plist and entitlements use `$(BRAND_…)` variables for the URL scheme, App Group (`group.<bundle id>`) and keychain group; the extension's ID is `<bundle id>.NotificationService` |
 | macOS | `macos/Runner/Configs/Brand.xcconfig`; `AppIcon.appiconset` | same as iOS |
-| Windows | `windows/brand.cmake`; `windows/runner/resources/app_icon.ico` | `BINARY_NAME` and version-resource strings; the MSIX identity and publisher are available for packaging |
-| Linux | `linux/brand.cmake`; `linux/brand/`: `<id>.desktop` (with the URL-scheme handler), `<id>.metainfo.xml`, hicolor PNG icons | `BINARY_NAME` and `APPLICATION_ID` in `CMakeLists.txt`; the Flatpak manifest is written when Linux packaging is set up |
+| Windows | `windows/brand.cmake`; `windows/runner/resources/app_icon.ico` | `BINARY_NAME` (a literal line `make brand` keeps current: see below), the window title and version-resource strings; the MSIX identity and publisher are available for packaging |
+| Linux | `linux/brand.cmake`; `linux/brand/`: `<id>.desktop` (with the URL-scheme handler), `<id>.metainfo.xml`, hicolor PNG icons | `BINARY_NAME` (a literal line `make brand` keeps current: see below), `APPLICATION_ID` and the window title; the Flatpak manifest is written when Linux packaging is set up |
 | Store listings | `fastlane/metadata/`: title, short description, name and the privacy, support and website URLs | Fastlane (full descriptions, screenshots and release notes stay hand-written) |
+
+One line in the Windows and Linux projects is the exception to "never edited": `set(BINARY_NAME "flare")`.
+Flutter's own tool finds the program to run (`flutter run -d linux`, `flutter test -d linux`) by reading that
+literal line from `CMakeLists.txt`, and cannot follow a variable, so `make brand` rewrites it to the brand's
+program name. It holds the official brand's value in git, so building the official brand changes nothing, and
+CMake refuses to build if it disagrees with `brand.cmake`, so a stale value fails loudly instead of producing a
+program the tools cannot find.
 
 The generator derives every size from the two images, one recipe per platform. The iOS icon is the
 artwork on `icon_background`, square and without an alpha channel, because the App Store rejects icons
