@@ -77,15 +77,15 @@ func TestAnEmptyFileMeansDefaults(t *testing.T) {
 
 func TestMistakesInTheFileAreErrors(t *testing.T) {
 	tests := map[string]struct{ content, mention string }{
-		"misspelled key":             {"listn: :9000\n", "listn"},
-		"misspelled nested key":      {"auth:\n  default-acess: deny-all\n", "default-acess"},
-		"not supported yet (push)":   {"push:\n  apps: []\n", "push"},
-		"not supported yet (attach)": {"attachments:\n  store: file:///x\n", "attachments"},
-		"duplicate key":              {"listen: :1\nlisten: :2\n", "already defined"},
-		"wrong type":                 {"message-size-limit: lots\n", "message-size-limit"},
-		"duration without a unit":    {"cache-duration: 86400\n", "cache-duration"},
-		"not YAML":                   {"listen: [unclosed\n", "listen"},
-		"a list instead of a map":    {"- a\n- b\n", "config file"},
+		"misspelled key":              {"listn: :9000\n", "listn"},
+		"misspelled nested key":       {"auth:\n  default-acess: deny-all\n", "default-acess"},
+		"not supported yet (cluster)": {"cluster:\n  nats-url: nats://nats:4222\n", "cluster"},
+		"not supported yet (attach)":  {"attachments:\n  store: file:///x\n", "attachments"},
+		"duplicate key":               {"listen: :1\nlisten: :2\n", "already defined"},
+		"wrong type":                  {"message-size-limit: lots\n", "message-size-limit"},
+		"duration without a unit":     {"cache-duration: 86400\n", "cache-duration"},
+		"not YAML":                    {"listen: [unclosed\n", "listen"},
+		"a list instead of a map":     {"- a\n- b\n", "config file"},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -187,6 +187,28 @@ func TestValidate(t *testing.T) {
 		{"message limit of zero", func(c *Config) { c.MessageSizeLimit = 0 }, "message-size-limit"},
 		{"unknown access", func(c *Config) { c.Auth.DefaultAccess = "open" }, "auth.default-access"},
 		{"empty access", func(c *Config) { c.Auth.DefaultAccess = "" }, "auth.default-access"},
+		{"a mailto subject", func(c *Config) { c.Push.VAPIDSubject = "mailto:admin@example.com" }, ""},
+		{"an https subject", func(c *Config) { c.Push.VAPIDSubject = "https://flare.example.com" }, ""},
+		{"a subject that is neither", func(c *Config) { c.Push.VAPIDSubject = "admin@example.com" }, "push.vapid-subject"},
+		{"a plain http subject", func(c *Config) { c.Push.VAPIDSubject = "http://flare.example.com" }, "push.vapid-subject"},
+		{"an app with fcm", func(c *Config) {
+			c.Push.Apps = []PushApp{{AppID: "org.example.flare", FCMCredentials: "/etc/flare/fcm.json"}}
+		}, ""},
+		{"an app with apns", func(c *Config) {
+			c.Push.Apps = []PushApp{{AppID: "org.example.flare", APNsKey: "/k.p8", APNsKeyID: "K", APNsTeamID: "T", APNsSandbox: true}}
+		}, ""},
+		{"an app with both", func(c *Config) {
+			c.Push.Apps = []PushApp{{AppID: "a.b", FCMCredentials: "/f.json", APNsKey: "/k.p8", APNsKeyID: "K", APNsTeamID: "T"}}
+		}, ""},
+		{"an app with no credentials", func(c *Config) { c.Push.Apps = []PushApp{{AppID: "org.example.flare"}} }, "fcm-credentials or apns-key"},
+		{"an app with a bad id", func(c *Config) { c.Push.Apps = []PushApp{{AppID: "my app", FCMCredentials: "/f"}} }, "app-id"},
+		{"an app with no id", func(c *Config) { c.Push.Apps = []PushApp{{FCMCredentials: "/f"}} }, "app-id"},
+		{"an app listed twice", func(c *Config) {
+			c.Push.Apps = []PushApp{{AppID: "a.b", FCMCredentials: "/f"}, {AppID: "a.b", FCMCredentials: "/g"}}
+		}, "listed twice"},
+		{"apns without ids", func(c *Config) { c.Push.Apps = []PushApp{{AppID: "a.b", APNsKey: "/k.p8"}} }, "apns-key-id"},
+		{"apns ids without a key", func(c *Config) { c.Push.Apps = []PushApp{{AppID: "a.b", FCMCredentials: "/f", APNsKeyID: "K"}} }, "only mean something"},
+		{"sandbox without a key", func(c *Config) { c.Push.Apps = []PushApp{{AppID: "a.b", FCMCredentials: "/f", APNsSandbox: true}} }, "only mean something"},
 		{"no trusted proxies", func(c *Config) { c.TrustedProxies = nil }, ""},
 		{"a proxy address", func(c *Config) { c.TrustedProxies = []string{"10.0.0.5", "::1"} }, ""},
 		{"a proxy range", func(c *Config) { c.TrustedProxies = []string{"172.16.0.0/12", "fd00::/8"} }, ""},
@@ -292,5 +314,85 @@ func TestTheEnvironmentReplacesTheListOfTrustedProxies(t *testing.T) {
 	}
 	if !reflect.DeepEqual(c.TrustedProxies, []string{"192.168.0.0/16"}) {
 		t.Errorf("TrustedProxies = %q, want the environment's list alone", c.TrustedProxies)
+	}
+}
+
+func TestPushDefaults(t *testing.T) {
+	p := Default().Push
+	if !p.Enabled || !p.WebPush || !p.UnifiedPush {
+		t.Errorf("push should be on, with the services that need no credentials: %+v", p)
+	}
+	if p.ContentFree || p.AllowPrivateEndpoints || len(p.Apps) != 0 || p.VAPIDSubject != "" {
+		t.Errorf("the cautious settings must be off by default: %+v", p)
+	}
+}
+
+func TestPushFromTheFile(t *testing.T) {
+	c, err := Load(write(t, `
+push:
+  content-free: true
+  unified-push: false
+  vapid-subject: mailto:admin@example.com
+  apps:
+    - app-id: org.example.flare
+      fcm-credentials: /etc/flare/fcm.json
+      apns-key: /etc/flare/AuthKey_ABC123.p8
+      apns-key-id: ABC123
+      apns-team-id: TEAM123
+      apns-sandbox: true
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := Push{
+		Enabled: true, ContentFree: true, WebPush: true, UnifiedPush: false, VAPIDSubject: "mailto:admin@example.com",
+		Apps: []PushApp{{AppID: "org.example.flare", FCMCredentials: "/etc/flare/fcm.json", APNsKey: "/etc/flare/AuthKey_ABC123.p8",
+			APNsKeyID: "ABC123", APNsTeamID: "TEAM123", APNsSandbox: true}},
+	}
+	if !reflect.DeepEqual(c.Push, want) {
+		t.Errorf("push = %+v\nwant   %+v", c.Push, want)
+	}
+	if err := c.Validate(); err != nil {
+		t.Error(err)
+	}
+}
+
+func TestAMisspelledPushSettingIsAnError(t *testing.T) {
+	for _, yaml := range []string{
+		"push:\n  content_free: true\n",
+		"push:\n  apps:\n    - app-id: a.b\n      fcm-credential: /f\n",
+		"push:\n  enable: false\n",
+	} {
+		if _, err := Load(write(t, yaml)); err == nil || !strings.Contains(err.Error(), "not a known setting") {
+			t.Errorf("%q: err = %v", yaml, err)
+		}
+	}
+}
+
+func TestPushFromTheEnvironment(t *testing.T) {
+	c := Default()
+	err := c.ApplyEnv(env(map[string]string{
+		"FLARE_PUSH_ENABLED":                 "false",
+		"FLARE_PUSH_CONTENT_FREE":            "true",
+		"FLARE_PUSH_WEB_PUSH":                "0",
+		"FLARE_PUSH_UNIFIED_PUSH":            "F",
+		"FLARE_PUSH_ALLOW_PRIVATE_ENDPOINTS": "1",
+		"FLARE_PUSH_VAPID_SUBJECT":           "https://flare.example.com",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := Push{Enabled: false, ContentFree: true, WebPush: false, UnifiedPush: false, AllowPrivateEndpoints: true, VAPIDSubject: "https://flare.example.com"}
+	if !reflect.DeepEqual(c.Push, want) {
+		t.Errorf("push = %+v, want %+v", c.Push, want)
+	}
+
+	c = Default()
+	err = c.ApplyEnv(env(map[string]string{"FLARE_PUSH_ENABLED": "maybe", "FLARE_PUSH_CONTENT_FREE": "yes please"}))
+	if err == nil || !strings.Contains(err.Error(), "FLARE_PUSH_ENABLED") || !strings.Contains(err.Error(), "FLARE_PUSH_CONTENT_FREE") {
+		t.Errorf("err = %v, want both variables named", err)
+	}
+	if !c.Push.Enabled || c.Push.ContentFree {
+		t.Errorf("a bad value changed a setting: %+v", c.Push)
 	}
 }

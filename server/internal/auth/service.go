@@ -271,6 +271,36 @@ func (s *Service) Authorize(ctx context.Context, id Identity, topic string, p Pe
 	return fmt.Errorf("%w: you may not %s this topic", ErrForbidden, p)
 }
 
+// MayAs says whether the user with the given ID, or an anonymous visitor for "",
+// may do p to topic. It is Authorize for code that acts for someone who isn't
+// making a request, such as a push notification going to their phone. A user who
+// no longer exists may do nothing.
+func (s *Service) MayAs(ctx context.Context, userID, topic string, p Permission) (bool, error) {
+	if userID != "" {
+		user, _, err := s.acc.UserByID(ctx, userID)
+		if errors.Is(err, ErrNotFound) {
+			return false, nil
+		}
+		if err != nil {
+			return false, err
+		}
+		if user.Role == RoleAdmin {
+			return true, nil
+		}
+	}
+	rules, err := s.acc.RulesFor(ctx, userID)
+	if err != nil {
+		return false, err
+	}
+	return Decide(rules, userID, topic, s.cfg.Default).Allows(p), nil
+}
+
+// MayRead is MayAs for reading, which is what a device's owner needs to be able
+// to do for it to be woken for a topic.
+func (s *Service) MayRead(ctx context.Context, userID, topic string) (bool, error) {
+	return s.MayAs(ctx, userID, topic, Read)
+}
+
 // Rules returns the access rules that apply to id: its own and everyone's.
 func (s *Service) Rules(ctx context.Context, id Identity) ([]Rule, error) {
 	return s.acc.RulesFor(ctx, id.UserID())

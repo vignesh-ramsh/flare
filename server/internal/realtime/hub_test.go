@@ -594,3 +594,34 @@ func TestParseCursor(t *testing.T) {
 		}
 	}
 }
+
+func TestMessageFindsAStoredMessageUntilItExpires(t *testing.T) {
+	now := time.Unix(1_800_000_000, 0)
+	h, _ := newHub(t, Options{TTL: time.Hour, Now: func() time.Time { return now }})
+	m := mustPublish(t, h, "t", "hello")
+
+	got, err := h.Message(context.Background(), m.ID)
+	if err != nil || !reflect.DeepEqual(got, m) {
+		t.Errorf("Message = %+v, %v; want %+v", got, err, m)
+	}
+	if _, err := h.Message(context.Background(), "unknown"); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("unknown ID: %v", err)
+	}
+	now = now.Add(2 * time.Hour)
+	if _, err := h.Message(context.Background(), m.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("expired: %v", err)
+	}
+}
+
+func TestStoredIsCalledOncePerStoredMessageAndNotForRefusedOnes(t *testing.T) {
+	var calls int
+	h, _ := newHub(t, Options{Stored: func() { calls++ }})
+	mustPublish(t, h, "t", "one")
+	mustPublish(t, h, "t", "two")
+	if _, err := h.Publish(context.Background(), draft("bad topic!", "x")); err == nil {
+		t.Fatal("a bad topic was accepted")
+	}
+	if calls != 2 {
+		t.Errorf("Stored called %d times, want 2", calls)
+	}
+}

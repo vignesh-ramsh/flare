@@ -27,6 +27,10 @@ type Options struct {
 	PageSize int
 	// Now returns the current time. Tests replace it.
 	Now func() time.Time
+	// Stored, if set, is called after each message is stored, so that whatever
+	// sends notifications for it can start at once. It runs while the hub is
+	// locked and must not block.
+	Stored func()
 }
 
 func (o *Options) fill() {
@@ -98,7 +102,15 @@ func (h *Hub) Publish(ctx context.Context, d message.Draft) (message.Message, er
 		return message.Message{}, err
 	}
 	h.broker.Publish(m)
+	if h.opt.Stored != nil {
+		h.opt.Stored()
+	}
 	return m, nil
+}
+
+// Message returns the unexpired message with the given ID, or store.ErrNotFound.
+func (h *Hub) Message(ctx context.Context, id string) (message.Message, error) {
+	return h.store.Message(ctx, id, h.opt.Now())
 }
 
 // Checkpoint returns an ID that sorts before every message published from now

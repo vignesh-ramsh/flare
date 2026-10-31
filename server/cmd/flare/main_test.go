@@ -277,7 +277,7 @@ func TestServeRefusesBadConfigurationBeforeStarting(t *testing.T) {
 		mention string
 	}{
 		{"unknown key in the file", nil, []string{"--config", writeConfig(t, "listn: :1\n")}, "listn is not a known setting"},
-		{"not supported yet", nil, []string{"--config", writeConfig(t, "push:\n  apps: []\n")}, "push is not a known setting"},
+		{"not supported yet", nil, []string{"--config", writeConfig(t, "cluster:\n  nats-url: nats://nats:4222\n")}, "cluster is not a known setting"},
 		{"missing file", nil, []string{"--config", filepath.Join(t.TempDir(), "nope.yml")}, "nope.yml"},
 		{"bad value from the file", nil, []string{"--config", writeConfig(t, "auth:\n  default-access: everything\n"), "--database", db}, "auth.default-access"},
 		{"bad environment", map[string]string{"FLARE_CACHE_DURATION": "soon"}, nil, "FLARE_CACHE_DURATION"},

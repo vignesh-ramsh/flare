@@ -679,3 +679,47 @@ func TestConcurrentAuthentication(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+func TestMayAsActsForSomeoneWhoIsNotMakingARequest(t *testing.T) {
+	s, _, _ := setup(t) // deny-all by default
+	alice := addUser(t, s, "alice", auth.RoleUser)
+	admin := addUser(t, s, "root", auth.RoleAdmin)
+	s.Grant(ctx, "alice", "alerts-*", auth.ReadOnly)
+	s.Grant(ctx, "alice", "secret", auth.DenyAll)
+	s.Grant(ctx, "everyone", "status", auth.ReadOnly)
+
+	tests := []struct {
+		who   string
+		topic string
+		p     auth.Permission
+		want  bool
+	}{
+		{alice.ID, "alerts-db", auth.Read, true},
+		{alice.ID, "alerts-db", auth.Write, false},
+		{alice.ID, "other", auth.Read, false},
+		{alice.ID, "secret", auth.Read, false},
+		{alice.ID, "status", auth.Read, true}, // a rule for everyone applies to users too
+		{"", "status", auth.Read, true},       // and to an anonymous visitor
+		{"", "alerts-db", auth.Read, false},   // but alice's rules do not
+		{"", "other", auth.Read, false},
+		{admin.ID, "anything", auth.Read, true},
+		{admin.ID, "anything", auth.Write, true},
+		{"no-such-user", "status", auth.Read, false}, // a deleted user may do nothing, even what everyone may
+	}
+	for _, tt := range tests {
+		got, err := s.MayAs(ctx, tt.who, tt.topic, tt.p)
+		if err != nil || got != tt.want {
+			t.Errorf("MayAs(%q, %q, %v) = %v, %v; want %v", tt.who, tt.topic, tt.p, got, err, tt.want)
+		}
+	}
+
+	// It sees changes at once: nothing is cached.
+	s.Revoke(ctx, "alice", "alerts-*")
+	if ok, _ := s.MayAs(ctx, alice.ID, "alerts-db", auth.Read); ok {
+		t.Error("a revoked rule still allows")
+	}
+	s.DeleteUser(ctx, "alice")
+	if ok, _ := s.MayAs(ctx, alice.ID, "status", auth.Read); ok {
+		t.Error("a deleted user still allowed")
+	}
+}

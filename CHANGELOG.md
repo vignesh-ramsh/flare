@@ -29,5 +29,12 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   are limited per client, and `trusted-proxies` says which proxies to believe about who that is. An
   anonymous visitor who is refused gets `401` and a logged-in user `403`; wrong credentials are never
   treated as anonymous. The sample configuration now starts with `auth.default-access: deny-all`.
+- Push notifications (server side): apps register devices (`POST /v1/devices`) and the topics to be woken for
+  (`PUT /v1/devices/{id}/subscriptions`); publishing queues a notification for each in the same transaction
+  that stores the message, and a dispatcher sends them with retries until the message expires. Senders for
+  Web Push (RFC 8291 and 8292, checked against the RFC's test vector), UnifiedPush, FCM and APNs; the last two
+  have been tested against fakes only. `GET /v1/messages/{id}` fetches one message after a wake-up.
+  `push.content-free` keeps message content out of push services. Endpoints that users supply must be https
+  at a public address, checked when connecting. The push relay is not built yet.
 - CI for the brand tool, tested on the oldest supported Dart (3.9) and the current stable one, and a
   check that app code never hard-codes the project name.

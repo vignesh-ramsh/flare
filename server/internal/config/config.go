@@ -21,6 +21,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/vignesh-ramsh/flare/server/internal/auth"
+	"github.com/vignesh-ramsh/flare/server/internal/push"
 )
 
 // Config is the server's configuration.
@@ -42,7 +43,49 @@ type Config struct {
 	TrustedProxies []string `yaml:"trusted-proxies"`
 
 	Auth     Auth     `yaml:"auth"`
+	Push     Push     `yaml:"push"`
 	Branding Branding `yaml:"branding"`
+}
+
+// Push configures push notifications: waking the apps of devices that are not
+// connected, through the push service of their platform.
+type Push struct {
+	// Enabled turns push notifications on. When off, the server takes no devices
+	// and sends nothing.
+	Enabled bool `yaml:"enabled"`
+	// ContentFree keeps message content out of push services: devices are told only
+	// that a message is waiting, and fetch it from this server. Without it, a
+	// message that fits goes in the notification, which lets the push service (Google,
+	// Apple, a browser vendor, a UnifiedPush distributor) read it.
+	ContentFree bool `yaml:"content-free"`
+	// WebPush and UnifiedPush enable those services. They need no credentials.
+	WebPush     bool `yaml:"web-push"`
+	UnifiedPush bool `yaml:"unified-push"`
+	// VAPIDSubject says how a Web Push service can reach the operator: a mailto: or
+	// https: URL. Defaults to base-url.
+	VAPIDSubject string `yaml:"vapid-subject"`
+	// AllowPrivateEndpoints lets Web Push and UnifiedPush endpoints be on private
+	// networks and use plain http, for a UnifiedPush distributor on the same network.
+	// Otherwise the server refuses to send anywhere but public https addresses.
+	AllowPrivateEndpoints bool `yaml:"allow-private-endpoints"`
+	// Apps are the apps this server holds Firebase and Apple credentials for. Each
+	// credential belongs to one app's publisher, so a server can push only to the apps
+	// listed here; for other apps a relay does it.
+	Apps []PushApp `yaml:"apps"`
+}
+
+// PushApp holds the push credentials of one app.
+type PushApp struct {
+	// AppID is the Android application ID and Apple bundle ID of the app.
+	AppID string `yaml:"app-id"`
+	// FCMCredentials is the path of the Firebase service account key (JSON).
+	FCMCredentials string `yaml:"fcm-credentials"`
+	// APNsKey is the path of the Apple .p8 key, with its ID and the team's.
+	APNsKey    string `yaml:"apns-key"`
+	APNsKeyID  string `yaml:"apns-key-id"`
+	APNsTeamID string `yaml:"apns-team-id"`
+	// APNsSandbox uses Apple's development servers, for apps built for development.
+	APNsSandbox bool `yaml:"apns-sandbox"`
 }
 
 // Auth is the access policy.
@@ -69,6 +112,7 @@ func Default() Config {
 		CacheDuration:    24 * time.Hour,
 		MessageSizeLimit: 4096,
 		Auth:             Auth{DefaultAccess: string(auth.ReadWrite)},
+		Push:             Push{Enabled: true, WebPush: true, UnifiedPush: true},
 		Branding:         Branding{Name: "Flare", PrimaryColor: "#F97316", AppURLScheme: "flare"},
 	}
 }
@@ -145,6 +189,22 @@ func (c *Config) ApplyEnv(getenv func(string) string) error {
 	if v := getenv("FLARE_TRUSTED_PROXIES"); v != "" {
 		c.TrustedProxies = strings.Split(v, ",")
 	}
+	str("FLARE_PUSH_VAPID_SUBJECT", &c.Push.VAPIDSubject)
+	for name, dst := range map[string]*bool{
+		"FLARE_PUSH_ENABLED":                 &c.Push.Enabled,
+		"FLARE_PUSH_CONTENT_FREE":            &c.Push.ContentFree,
+		"FLARE_PUSH_WEB_PUSH":                &c.Push.WebPush,
+		"FLARE_PUSH_UNIFIED_PUSH":            &c.Push.UnifiedPush,
+		"FLARE_PUSH_ALLOW_PRIVATE_ENDPOINTS": &c.Push.AllowPrivateEndpoints,
+	} {
+		if v := getenv(name); v != "" {
+			if b, err := strconv.ParseBool(v); err != nil {
+				errs = append(errs, fmt.Errorf("%s: %q is not true or false", name, v))
+			} else {
+				*dst = b
+			}
+		}
+	}
 	if v := getenv("FLARE_CACHE_DURATION"); v != "" {
 		if d, err := time.ParseDuration(v); err != nil {
 			errs = append(errs, fmt.Errorf("FLARE_CACHE_DURATION: %w", err))
@@ -210,6 +270,8 @@ func (c *Config) Validate() error {
 		bad("trusted-proxies", "%v", err)
 	}
 
+	c.validatePush(bad)
+
 	b := c.Branding
 	if n := utf8.RuneCountInString(b.Name); n < 1 || n > 50 || strings.ContainsFunc(b.Name, func(r rune) bool { return r < 0x20 || r == 0x7F }) {
 		bad("branding.name", "must be 1-50 characters on one line")
@@ -246,4 +308,39 @@ func (c *Config) DatabasePath() (string, error) {
 func (c *Config) Open() bool {
 	a, err := auth.ParseAccess(c.Auth.DefaultAccess)
 	return err == nil && a.Open()
+}
+
+// validatePush checks the push settings. It does not read the credential files;
+// the server does that when it starts, and says which could not be read.
+func (c *Config) validatePush(bad func(key, format string, args ...any)) {
+	p := c.Push
+	if s := p.VAPIDSubject; s != "" {
+		if !strings.HasPrefix(s, "mailto:") && !strings.HasPrefix(s, "https://") {
+			bad("push.vapid-subject", "must be a mailto: address or an https: URL (found %q)", s)
+		} else if len(s) > 200 {
+			bad("push.vapid-subject", "must be at most 200 characters")
+		}
+	}
+	seen := map[string]bool{}
+	for i, app := range p.Apps {
+		key := fmt.Sprintf("push.apps[%d]", i)
+		switch {
+		case !push.ValidAppID(app.AppID):
+			bad(key+".app-id", "must be the app's identifier, such as org.example.flare (found %q)", app.AppID)
+			continue
+		case seen[app.AppID]:
+			bad(key+".app-id", "%q is listed twice", app.AppID)
+			continue
+		}
+		seen[app.AppID] = true
+		if app.FCMCredentials == "" && app.APNsKey == "" {
+			bad(key, "%s needs fcm-credentials or apns-key, or both", app.AppID)
+		}
+		if app.APNsKey != "" && (app.APNsKeyID == "" || app.APNsTeamID == "") {
+			bad(key, "%s: apns-key needs apns-key-id and apns-team-id", app.AppID)
+		}
+		if app.APNsKey == "" && (app.APNsKeyID != "" || app.APNsTeamID != "" || app.APNsSandbox) {
+			bad(key, "%s: apns-key-id, apns-team-id and apns-sandbox only mean something with apns-key", app.AppID)
+		}
+	}
 }

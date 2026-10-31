@@ -57,6 +57,11 @@ func start(t *testing.T, cfg config.Config) (url string, srv *Server, stop func(
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() {
+		if t.Failed() {
+			t.Logf("the server's log:\n%s", logs.String())
+		}
+	})
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)

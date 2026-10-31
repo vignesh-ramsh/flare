@@ -5,9 +5,11 @@
 # than being ignored. Each setting can also be given as an environment variable
 # (FLARE_BASE_URL, FLARE_LISTEN, FLARE_DATABASE, FLARE_CACHE_DURATION,
 # FLARE_MESSAGE_SIZE_LIMIT, FLARE_TRUSTED_PROXIES, FLARE_AUTH_DEFAULT_ACCESS,
-# FLARE_BRANDING_NAME, FLARE_BRANDING_PRIMARY_COLOR,
-# FLARE_BRANDING_APP_URL_SCHEME), which win over this file, and command-line
-# flags win over both.
+# FLARE_PUSH_ENABLED, FLARE_PUSH_CONTENT_FREE, FLARE_PUSH_WEB_PUSH,
+# FLARE_PUSH_UNIFIED_PUSH, FLARE_PUSH_VAPID_SUBJECT,
+# FLARE_PUSH_ALLOW_PRIVATE_ENDPOINTS, FLARE_BRANDING_NAME,
+# FLARE_BRANDING_PRIMARY_COLOR, FLARE_BRANDING_APP_URL_SCHEME), which win over
+# this file, and command-line flags win over both.
 
 # The public address of the server, as users reach it.
 base-url: https://flare.example.com
@@ -62,6 +64,44 @@ auth:
   # can publish to and read every topic, and a topic's name is all that
   # protects it.
   default-access: deny-all
+
+# Push notifications wake the apps of devices that are not connected, through the
+# push service of their platform. Apps register their devices with the server (see
+# api/openapi.yaml); this section says what the server may send through.
+push:
+  enabled: true
+
+  # Keep what was published out of the push services: devices are told only that a
+  # message is waiting, and fetch it from this server. Without it, a message that
+  # fits goes in the notification, so Google, Apple, the browser's vendor or the
+  # UnifiedPush distributor can read it.
+  content-free: false
+
+  # Browsers (Web Push) and UnifiedPush distributors need no credentials.
+  web-push: true
+  unified-push: true
+
+  # How a Web Push service can reach you if it needs to. A mailto: address or an
+  # https: URL; defaults to base-url.
+  # vapid-subject: mailto:admin@example.com
+
+  # The server sends to addresses that users choose, so it refuses anything but
+  # public https addresses. Set this only for a UnifiedPush distributor on the same
+  # network, such as a self-hosted ntfy: it lets users make the server send requests
+  # to machines on that network.
+  allow-private-endpoints: false
+
+  # Android (Firebase) and iOS (Apple) push needs the credentials of the app's
+  # publisher. For your own branded app, list its keys here; for the official apps,
+  # a push relay does it (not available yet). Without an entry, devices of an app can
+  # use Web Push or UnifiedPush only.
+  # apps:
+  #   - app-id: com.acme.alerts                    # Android application ID and Apple bundle ID
+  #     fcm-credentials: /etc/flare/acme-fcm.json  # service account key from the Firebase console
+  #     apns-key: /etc/flare/AuthKey_ABC123.p8     # from the Apple Developer account
+  #     apns-key-id: ABC123
+  #     apns-team-id: TEAM123
+  #     apns-sandbox: false                        # true for apps built for development
 
 # How the server presents itself to apps (shown at /v1/config).
 branding:

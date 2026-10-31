@@ -262,6 +262,10 @@ sequenceDiagram
   large or encrypted ones are sent as a `poll_request` (topic + message id) and the app fetches the body.
 - **Dead tokens.** APNs `410 Unregistered` / FCM `UNREGISTERED` deletes the device's push token.
   Transient errors retry with exponential backoff and jitter, then give up after the message expires.
+- **Push is a queue.** A notification is queued in the same transaction that stores the message, so a
+  stored message is never left without its notifications, and a restart loses none. Workers take jobs with
+  a lease, so a crash only delays a notification. Before each send the dispatcher asks again whether the
+  device's owner may still read the topic.
 
 ---
 
@@ -323,6 +327,12 @@ the server has to know **which app** a device is running before it can push to i
   (`push.allowed-relays`), the server sends a content-free wake-up to that relay. The relay is run by
   whoever publishes that app and holds that app's keys. It is the same `flare` binary in `relay` mode.
 - **No push:** otherwise the device only gets messages over its live socket and on catch-up.
+
+> **Implemented:** direct push (FCM, APNs), Web Push and UnifiedPush, with the device API of §6. The relay
+> is not built yet. The direct senders talk to Google and Apple with plain HTTP clients rather than the
+> `firebase.google.com/go` and `apns2` libraries: it is two requests each, and it avoids a large dependency
+> tree. FCM and APNs have been tested against fakes of the real services only; neither has been run
+> against Google or Apple.
 
 ```mermaid
 sequenceDiagram
@@ -398,10 +408,12 @@ server handlers and generated client code.
 | `GET` | `/{topics}/sse` | Server-Sent Events stream (`topics` = comma-separated list) |
 | `GET` | `/{topics}/json` | Newline-delimited JSON stream; `?poll=1` for a one-shot fetch |
 | `GET` | `/v1/messages?topic=&since=&limit=` | Paginated history from the cache |
-| `GET` / `DELETE` | `/v1/messages/{id}` | Fetch one message (used after a push wake-up) / retract it (emits `message_deleted`) |
+| `GET` | `/v1/messages/{id}` | Fetch one message (used after a push wake-up) |
+| `DELETE` | `/v1/messages/{id}` | Retract a message (emits `message_deleted`; not implemented yet) |
 | `GET` | `/v1/config` | Public server info: name and logo (runtime branding), API version, feature flags, auth and push modes |
-| `POST` | `/v1/devices` | Register a device: `app_id`, platform, and a push token or relay + handle |
-| `PUT` | `/v1/devices/{id}/subscriptions` | Replace the device's push subscriptions; returns opaque subscription ids |
+| `POST` | `/v1/devices` | Register a device: `app_id`, platform, provider and its token or endpoint (relay + handle: not yet) |
+| `PUT` | `/v1/devices/{id}/subscriptions` | Replace the device's push subscriptions; returns opaque subscription ids. Needs the device secret |
+| `DELETE` | `/v1/devices/{id}` | Forget a device. Needs the device secret |
 | `POST` | `/v1/auth/login` | Log in with a user name and password (Basic auth); returns an access token |
 | `GET` | `/v1/account` | Who the request is logged in as |
 | `GET` / `DELETE` | `/v1/account/tokens`, `/v1/account/tokens/{id}` | List and revoke one's own access tokens |
@@ -412,7 +424,8 @@ server handlers and generated client code.
 | `GET` | `/healthz`, `/readyz`, `/metrics` | Health checks and Prometheus metrics |
 
 **Implemented so far:** publishing (`/{topic}`, `/v1/messages`), the three ways to subscribe, `/v1/config`,
-`/healthz` and `/readyz`, and accounts: login, access tokens and per-topic access rules (§7). The rest arrive with the features they belong to; the authoritative list of what
+`/healthz` and `/readyz`, accounts (login, access tokens and per-topic access rules, §7), and push
+notifications: device registration, subscriptions and fetching one message (§5). The rest arrive with the features they belong to; the authoritative list of what
 the server serves today is [`api/openapi.yaml`](../api/openapi.yaml), and a test fails if it and the code
 disagree.
 
@@ -483,8 +496,21 @@ time; the same checks end open `/json` and `/sse` streams.
 - **Attachments.** Size and total quota limits, expiry, `Content-Disposition: attachment` and
   `X-Content-Type-Options: nosniff`, ideally served from a separate origin to rule out stored XSS.
   The server never fetches external `Attach:` URLs itself (no SSRF); clients do.
-- **Push privacy mode.** Per topic or per server: only send `poll_request` wake-ups to FCM/APNs, never
-  message content. Relay wake-ups are always content-free (§5.3).
+- **Push privacy mode.** Per server (`push.content-free`): only send `poll_request` wake-ups, never message
+  content, so no push service sees what was published. (Per topic: not yet.) A poll request holds a
+  subscription ID and a message ID, and no topic. Without it, a message that fits goes in the notification;
+  Web Push is encrypted for the device (RFC 8291), but FCM, APNs and a UnifiedPush distributor can read it.
+  Relay wake-ups are always content-free (§5.3).
+- **Push endpoints are user-supplied URLs.** The server sends requests to Web Push and UnifiedPush endpoints
+  that users register, which is a way to make it send requests into its own network. So it accepts only
+  https URLs at public addresses, and checks the address it actually connects to (a name that resolves to a
+  private address, including through IPv4-in-IPv6 forms, or changes between lookups, gets nowhere). It
+  follows no redirects and uses no proxy for them. `push.allow-private-endpoints` relaxes this for a
+  distributor on the same network.
+- **Devices.** A device acts with the access of whoever registered it, checked when it follows a topic and
+  again before every notification. It is managed with a secret returned once at registration (only a hash
+  is kept), sent in the `Device-Secret` header. A server that lets nobody in anonymously refuses anonymous
+  devices.
 - **Relays.** The server only calls relays on `push.allowed-relays`, so device registrations cannot
   point it at arbitrary URLs.
 - **End-to-end encryption (optional, per topic).**
@@ -518,6 +544,10 @@ The same schema runs on SQLite and PostgreSQL. Queries are written once in SQL a
 | `acl` | `user_id` (null = everyone), `topic_pattern`, `permission` |
 | `messages` | `id` (UUIDv7, PK), `topic`, `time`, `deliver_at`, `expires_at`, `priority`, `title`, `body`, `tags`, `click`, `actions` (JSON), `attachment_id`, `encoding`, `sender_user_id`, `sender_ip`; index on `(topic, time)` |
 | `attachments` | `id`, `message_id`, `name`, `mime`, `size`, `storage_key`, `expires_at` |
+| `devices` | `id`, `secret_hash`, `user_id` (null = anonymous), `app_id`, `platform`, `provider`, `target` (push token, endpoint or relay handle), `p256dh`, `auth_secret`, `relay_url`, `app_version`, `created_at`, `seen_at`; unique `(provider, relay_url, target)` |
+| `push_subscriptions` | `id` (opaque, sent in notifications), `device_id`, `topic`, `created_at`; unique `(device_id, topic)` |
+| `push_jobs` | `id`, `device_id`, `subscription_id`, `message_id`, `attempts`, `next_attempt_at`, `expires_at` |
+| `settings` | `key`, `value`: the server's own state, such as its Web Push signing key |
 | `devices` | `id`, `secret_hash`, `user_id` (nullable), `app_id`, `platform`, `push_provider`, `push_token` *or* (`relay_url`, `relay_handle`), `app_version`, `last_seen_at` |
 | `push_subscriptions` | `id` (opaque, sent in wake-ups), `device_id`, `topic`, `created_at`; unique `(device_id, topic)` |
 | `push_jobs` | Single-node queue only: `id`, `device_id`, `message_id`, `attempts`, `next_attempt_at` |
@@ -594,9 +624,9 @@ flowchart TB
 | Server DB | PostgreSQL via `jackc/pgx/v5` | Cluster mode |
 | Queries / migrations | `pressly/goose` migrations; plain `database/sql` for now, `sqlc` once there are two dialects | A handful of queries don't need code generation yet; no ORM |
 | Broker / queue | in-process channels → **NATS + JetStream** (`nats-io/nats.go`) | One dependency covers cross-node fan-out and the durable push queue |
-| APNs | `sideshow/apns2` (or a thin HTTP/2 + JWT client) | Token-based `.p8` auth; one key per configured app |
-| FCM | `firebase.google.com/go/v4/messaging` | HTTP v1 API; one service account per configured app |
-| Web Push | `SherClockHolmes/webpush-go` | VAPID |
+| APNs | Own thin HTTP/2 + JWT client (`internal/push/apns.go`) | Token-based `.p8` auth; one key per configured app |
+| FCM | Own thin HTTP v1 client with service-account OAuth (`internal/push/fcm.go`) | One service account per configured app; no Firebase SDK |
+| Web Push | Own implementation of RFC 8291 and 8292 (`internal/push/webpush.go`), standard-library crypto | Checked against the RFC 8291 test vector |
 | Attachments | local FS → S3-compatible via `minio-go` | Works with S3, R2, MinIO, Backblaze |
 | Auth crypto | `golang.org/x/crypto/argon2`, `crypto/rand`, `crypto/sha256` | |
 | Rate limiting | `golang.org/x/time/rate`; Valkey optional for global limits | |
@@ -710,17 +740,24 @@ branding:
   app-url-scheme: flare                        # must match the url_scheme of the app your users install
 
 push:
+  enabled: true
+  content-free: false                          # never put message content in a push
+  web-push: true
+  unified-push: true
+  # vapid-subject: mailto:admin@example.com    # defaults to base-url
+  allow-private-endpoints: false               # for a UnifiedPush distributor on your network
   # Direct push for apps whose keys you hold (your own rebranded build):
-  apps: []
-  #  - app-id: com.acme.alerts
-  #    fcm-credentials: /etc/flare/acme-fcm-service-account.json
-  #    apns-key: /etc/flare/AuthKey_ABC123.p8
-  #    apns-key-id: ABC123
-  #    apns-team-id: TEAM123
-  # Relays allowed to wake other apps. The official relay serves the official apps;
-  # remove it if you don't use them. (Placeholder URL until the project runs one.)
-  allowed-relays:
-    - https://push.flare.example
+  # apps:
+  #   - app-id: com.acme.alerts
+  #     fcm-credentials: /etc/flare/acme-fcm-service-account.json
+  #     apns-key: /etc/flare/AuthKey_ABC123.p8
+  #     apns-key-id: ABC123
+  #     apns-team-id: TEAM123
+  #     apns-sandbox: false
+  # Not implemented yet: relays allowed to wake other apps. The official relay will
+  # serve the official apps; remove it if you don't use them.
+  # allowed-relays:
+  #   - https://push.flare.example
 
 cluster:
   # nats-url: nats://nats:4222                 # set to enable cluster mode
@@ -1109,6 +1146,8 @@ rights). This pairs naturally with white-labelling:
   and the Compose self-hosting guide (**done**), users, access tokens and per-topic access rules
 (**done**). Still to do: rate limits for publishing, and abuse protection.
 - CLI: `flare publish`, `flare subscribe` (**done**).
+- Push notifications, server side: device registration, FCM, APNs, Web Push and UnifiedPush, with a durable
+  queue and retries (**done**, FCM and APNs only against fakes). Still to do: the relay.
 - Android app (FCM + instant-delivery mode) and desktop apps (tray + native notifications).
 
 **Phase 2 — Full platform coverage**

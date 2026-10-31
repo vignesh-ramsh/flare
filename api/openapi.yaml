@@ -28,9 +28,34 @@ info:
 
     ## Status
 
-    Attachments, delayed delivery, action buttons and push notifications are not
-    supported yet; a request that uses them is refused with code 40003 instead of
-    having them silently ignored.
+    Attachments, delayed delivery and action buttons are not supported yet; a
+    request that uses them is refused with code 40003 instead of having them
+    silently ignored.
+
+    ## Push notifications
+
+    An app that is not running can be woken by the push service of its platform.
+    The app registers itself with `POST /v1/devices` (which push service reaches
+    it, and the token or endpoint that service gave it), and gets an `id` and a
+    `secret`. It then says which topics to be woken for with
+    `PUT /v1/devices/{id}/subscriptions`, sending the secret in the `Device-Secret`
+    header, and gets an opaque subscription `id` for each topic.
+
+    A device acts with the access of whoever registered it, checked when it
+    follows a topic and again before every notification, so withdrawing access
+    stops its notifications. A device registered without logging in has only what an
+    anonymous visitor has.
+
+    A notification carries one JSON object. Either the message itself, in the shape
+    of the `Message` schema plus `sub`, the subscription's ID; or, when the message
+    is too large for the push service or the server is set to keep content out of
+    push services, a poll request: `{"event":"poll_request","sub":"...","id":"..."}`
+    with no topic and no content. The app then fetches the message with
+    `GET /v1/messages/{id}` using its own credentials. It tells the topic by the
+    subscription ID, which it keeps from the call that created it. Apps remove
+    duplicates by message `id`.
+
+    `/v1/config` lists which push services the server can use (`push`).
 
     ## Access
 
@@ -74,6 +99,8 @@ tags:
     description: Send a message to a topic.
   - name: Subscribe
     description: Receive messages, live or from the cache.
+  - name: Push
+    description: Register an app to be woken by push notifications, and fetch the message it was woken for.
   - name: Server
     description: Information about the server itself.
 
@@ -139,6 +166,131 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/Published"
+        default:
+          $ref: "#/components/responses/Error"
+
+  /v1/messages/{id}:
+    get:
+      tags: [Push]
+      summary: Fetch one message
+      description: |
+        What an app does after a push notification told it that a message is waiting.
+        Needs read access to the message's topic. A message that has expired is
+        reported as not found.
+      operationId: getMessage
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: The message.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Message" }
+        default:
+          $ref: "#/components/responses/Error"
+
+  /v1/devices:
+    post:
+      tags: [Push]
+      summary: Register an app to receive push notifications
+      description: |
+        Says how this installation of an app can be woken. Which fields to give depends
+        on the `provider`:
+
+        | provider | give | what it is |
+        |---|---|---|
+        | `fcm` | `token` | the registration token Firebase gave the app (Android) |
+        | `apns` | `token` | the device token Apple gave the app, in hexadecimal (iOS, macOS) |
+        | `webpush` | `endpoint`, `keys` | a browser's push subscription, or a UnifiedPush distributor that gives keys; notifications are encrypted for it |
+        | `unifiedpush` | `endpoint` | a UnifiedPush distributor's endpoint; the distributor sees the notification |
+
+        The server refuses a device it can't reach, such as an `fcm` device for an app
+        it has no credentials for (see `push` in `/v1/config`), rather than accept it
+        and never notify it. An `endpoint` must be an https URL at a public address.
+
+        Registering a token that is already registered replaces the earlier
+        registration, with its subscriptions, and returns a new secret.
+
+        The device belongs to whoever is logged in. Without credentials it belongs to
+        an anonymous visitor, which is only allowed on a server that lets anonymous
+        visitors read.
+      operationId: registerDevice
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DeviceRegistration" }
+      responses:
+        "201":
+          description: Registered. The secret is shown only now.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DeviceCreated" }
+        default:
+          $ref: "#/components/responses/Error"
+
+  /v1/devices/{id}/subscriptions:
+    put:
+      tags: [Push]
+      summary: Say which topics the device is woken for
+      description: |
+        Replaces the whole list. Nothing changes unless the device's owner may read
+        every topic listed. A topic the device already followed keeps its subscription
+        ID.
+      operationId: followTopics
+      security:
+        - deviceSecret: []
+      parameters:
+        - $ref: "#/components/parameters/DeviceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [topics]
+              additionalProperties: false
+              properties:
+                topics:
+                  type: array
+                  maxItems: 100
+                  items: { type: string, pattern: "^[A-Za-z0-9_-]{1,64}$" }
+      responses:
+        "200":
+          description: The device's subscriptions, in the order given.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [subscriptions]
+                properties:
+                  subscriptions:
+                    type: array
+                    items:
+                      type: object
+                      required: [topic, id]
+                      properties:
+                        topic: { type: string }
+                        id: { type: string, description: Opaque. Every notification for the topic carries it as `sub`. }
+        default:
+          $ref: "#/components/responses/Error"
+
+  /v1/devices/{id}:
+    delete:
+      tags: [Push]
+      summary: Forget a device
+      description: Removes the device with its subscriptions and any notifications waiting for it.
+      operationId: removeDevice
+      security:
+        - deviceSecret: []
+      parameters:
+        - $ref: "#/components/parameters/DeviceId"
+      responses:
+        "204":
+          description: Removed.
         default:
           $ref: "#/components/responses/Error"
 
@@ -384,8 +536,19 @@ components:
       type: http
       scheme: basic
       description: A user name and password. Checked on every request, which is slow by design; prefer a token.
+    deviceSecret:
+      type: apiKey
+      in: header
+      name: Device-Secret
+      description: The secret returned when the device was registered. It is the device's own credential, separate from any user's token.
 
   parameters:
+    DeviceId:
+      name: id
+      in: path
+      required: true
+      description: The device's `id`, from registering it.
+      schema: { type: string }
     Topic:
       name: topic
       in: path
@@ -483,9 +646,62 @@ components:
             parameter; 40003 not supported (yet); 40004 unreadable body; 40101 log in
             first; 40102 invalid credentials; 40301 forbidden; 40401 not found; 40902
             token limit reached; 41301 message too large; 42902 too many failed
-            logins; 50001 internal error; 50301 not ready.
+            logins; 42903 too many devices; 50001 internal error; 50301 not ready.
         http: { type: integer }
         error: { type: string }
+
+    DeviceRegistration:
+      type: object
+      required: [app_id, platform, provider]
+      additionalProperties: false
+      properties:
+        app_id:
+          type: string
+          maxLength: 128
+          description: "The app's identifier: the Android application ID or the Apple bundle ID. A rebranded app has its own."
+          examples: ["org.example.flare"]
+        platform: { type: string, enum: [android, ios, macos, windows, linux, web] }
+        provider: { type: string, enum: [fcm, apns, webpush, unifiedpush] }
+        token: { type: string, description: "For `fcm` and `apns`." }
+        endpoint: { type: string, description: "For `webpush` and `unifiedpush`: an https URL at a public address." }
+        keys:
+          type: object
+          description: "For `webpush`: from the browser's subscription (base64url)."
+          required: [p256dh, auth]
+          additionalProperties: false
+          properties:
+            p256dh: { type: string, description: "The browser's public key, an uncompressed P-256 point." }
+            auth: { type: string, description: The 16-byte authentication secret. }
+        app_version: { type: string, maxLength: 64 }
+
+    DeviceCreated:
+      type: object
+      required: [id, secret]
+      properties:
+        id: { type: string }
+        secret:
+          type: string
+          description: "`flrd_` and 43 characters. Send it in `Device-Secret` to manage the device. Only a hash is kept, so it can't be shown again."
+
+    PushMessage:
+      description: |
+        What a push notification carries when it holds the message: the `Message`
+        schema, with the ID of the subscription it is for.
+      allOf:
+        - $ref: "#/components/schemas/Message"
+        - type: object
+          required: [sub]
+          properties:
+            sub: { type: string, description: The subscription's ID. }
+
+    PollRequest:
+      type: object
+      description: What a push notification carries when it only says that a message is waiting. Fetch it with `GET /v1/messages/{id}`.
+      required: [event, sub, id]
+      properties:
+        event: { type: string, const: poll_request }
+        sub: { type: string, description: The subscription's ID. }
+        id: { type: string, description: The message's ID. }
 
     LoginRequest:
       type: object
@@ -570,3 +786,25 @@ components:
               type: string
               enum: [read-write, read-only, write-only, deny-all]
               description: What anyone may do on this server.
+        push:
+          type: object
+          description: How this server can push to apps. Present when push notifications are on (the feature `push`).
+          required: [providers]
+          properties:
+            providers:
+              type: array
+              items: { type: string, enum: [webpush, unifiedpush] }
+              description: The services that work for every app.
+            apps:
+              type: object
+              description: For `fcm` and `apns`, the app IDs the server holds credentials for.
+              additionalProperties:
+                type: array
+                items: { type: string }
+            relays:
+              type: array
+              items: { type: string }
+              description: The relays the server wakes devices through.
+            web_push_public_key:
+              type: string
+              description: The key a browser subscribes with (`applicationServerKey`), base64url.

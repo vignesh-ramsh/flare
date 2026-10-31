@@ -10,12 +10,15 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/vignesh-ramsh/flare/server/internal/api"
 	"github.com/vignesh-ramsh/flare/server/internal/auth"
 	"github.com/vignesh-ramsh/flare/server/internal/broker"
 	"github.com/vignesh-ramsh/flare/server/internal/config"
+	"github.com/vignesh-ramsh/flare/server/internal/push"
 	"github.com/vignesh-ramsh/flare/server/internal/realtime"
 	"github.com/vignesh-ramsh/flare/server/internal/store"
 )
@@ -28,6 +31,9 @@ type Server struct {
 	broker *broker.InProc
 	hub    *realtime.Hub
 	api    *api.API
+
+	// dispatcher sends push notifications. Nil when push is off.
+	dispatcher *push.Dispatcher
 
 	// endStreams cancels shutdown, which tells streams and WebSockets to end.
 	shutdown   context.Context
@@ -57,18 +63,91 @@ func New(ctx context.Context, cfg config.Config, log *slog.Logger) (*Server, err
 		return nil, fmt.Errorf("open the message store: %w", err)
 	}
 
+	authSvc := auth.NewService(st, auth.ServiceConfig{Default: access, Proxies: proxies})
+
+	var pushSvc *push.Service
+	var dispatcher *push.Dispatcher
+	hubOpts := realtime.Options{TTL: cfg.CacheDuration, MaxMessageSize: cfg.MessageSizeLimit}
+	if cfg.Push.Enabled {
+		registry, err := buildRegistry(ctx, cfg, st, log)
+		if err != nil {
+			st.Close()
+			return nil, err
+		}
+		pushSvc = push.NewService(st, authSvc, registry, push.ServiceConfig{AllowPrivateEndpoints: cfg.Push.AllowPrivateEndpoints})
+		dispatcher = push.NewDispatcher(st, registry, authSvc, push.DispatcherConfig{ContentFree: cfg.Push.ContentFree, Log: log})
+		hubOpts.Stored = dispatcher.Wake
+		log.Info("push notifications are on", "services", registry.Names(), "content_free", cfg.Push.ContentFree)
+	}
+
 	br := broker.NewInProc()
-	hub := realtime.NewHub(st, br, realtime.Options{TTL: cfg.CacheDuration, MaxMessageSize: cfg.MessageSizeLimit})
+	hub := realtime.NewHub(st, br, hubOpts)
 	shutdown, endStreams := context.WithCancel(context.Background())
 	return &Server{
-		cfg: cfg, log: log, store: st, broker: br, hub: hub,
+		cfg: cfg, log: log, store: st, broker: br, hub: hub, dispatcher: dispatcher,
 		api: api.New(api.Deps{
-			Hub: hub, Config: cfg, Log: log, Shutdown: shutdown,
-			Auth: auth.NewService(st, auth.ServiceConfig{Default: access, Proxies: proxies}),
+			Hub: hub, Config: cfg, Log: log, Shutdown: shutdown, Auth: authSvc, Push: pushSvc,
 		}),
 		shutdown: shutdown, endStreams: endStreams,
 		purgeEvery: time.Minute,
 	}, nil
+}
+
+// buildRegistry sets up the push services the configuration asks for. A credential
+// that can't be read or used stops the server from starting, naming the file:
+// better than a server that runs and quietly never notifies an app.
+func buildRegistry(ctx context.Context, cfg config.Config, st *store.SQLite, log *slog.Logger) (*push.Registry, error) {
+	p := cfg.Push
+	registry := push.NewRegistry()
+	endpoints := push.EndpointClient(p.AllowPrivateEndpoints)
+
+	if p.UnifiedPush {
+		registry.Add(push.UnifiedPush, push.NewUnifiedPush(endpoints, p.AllowPrivateEndpoints))
+	}
+	if p.WebPush {
+		key, err := push.LoadVAPIDKey(ctx, st)
+		if err != nil {
+			return nil, fmt.Errorf("web push: %w", err)
+		}
+		subject := p.VAPIDSubject
+		if subject == "" && strings.HasPrefix(cfg.BaseURL, "https://") {
+			subject = cfg.BaseURL
+		}
+		if subject == "" {
+			log.Warn("web push has no contact for push services to reach you at; " +
+				"set push.vapid-subject or base-url (Apple's push service requires one)")
+		}
+		registry.Add(push.WebPush, push.NewWebPush(endpoints, key, subject, p.AllowPrivateEndpoints))
+	}
+
+	// FCM and APNs are fixed Google and Apple addresses, so they may use the
+	// environment's proxy, unlike the endpoints users choose.
+	google := push.NewHTTP2Client()
+	for _, app := range p.Apps {
+		if app.FCMCredentials != "" {
+			creds, err := os.ReadFile(app.FCMCredentials)
+			if err != nil {
+				return nil, fmt.Errorf("push.apps %s: read fcm-credentials: %w", app.AppID, err)
+			}
+			sender, err := push.NewFCM(creds, google)
+			if err != nil {
+				return nil, fmt.Errorf("push.apps %s: fcm-credentials %s: %w", app.AppID, app.FCMCredentials, err)
+			}
+			registry.AddApp(push.FCM, app.AppID, sender)
+		}
+		if app.APNsKey != "" {
+			key, err := os.ReadFile(app.APNsKey)
+			if err != nil {
+				return nil, fmt.Errorf("push.apps %s: read apns-key: %w", app.AppID, err)
+			}
+			sender, err := push.NewAPNs(key, app.APNsKeyID, app.APNsTeamID, app.AppID, app.APNsSandbox, google)
+			if err != nil {
+				return nil, fmt.Errorf("push.apps %s: apns-key %s: %w", app.AppID, app.APNsKey, err)
+			}
+			registry.AddApp(push.APNs, app.AppID, sender)
+		}
+	}
+	return registry, nil
 }
 
 // Handler returns the HTTP handler, for tests and embedding.
@@ -105,6 +184,15 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 	defer stopPurge()
 	go s.purgeLoop(purgeCtx)
 
+	// Registered after the deferred Close, so it runs before it: notifications
+	// being sent finish being recorded before the store goes away.
+	if s.dispatcher != nil {
+		pushCtx, stopPush := context.WithCancel(context.Background())
+		pushDone := make(chan struct{})
+		go func() { s.dispatcher.Run(pushCtx); close(pushDone) }()
+		defer func() { stopPush(); <-pushDone }()
+	}
+
 	failed := make(chan error, 1)
 	go func() { failed <- srv.Serve(ln) }()
 
@@ -134,13 +222,20 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 // purgeLoop removes expired messages until ctx ends.
 func (s *Server) purgeLoop(ctx context.Context) {
 	purge := func() {
-		n, err := s.store.DeleteExpired(ctx, s.hub.Now())
+		now := s.hub.Now()
+		n, err := s.store.DeleteExpired(ctx, now)
 		switch {
 		case ctx.Err() != nil:
 		case err != nil:
 			s.log.Error("could not remove expired messages", "error", err)
 		case n > 0:
 			s.log.Debug("removed expired messages", "count", n)
+		}
+		// Notifications for messages that are gone are no use to anyone.
+		if jobs, err := s.store.DeleteExpiredJobs(ctx, now); err != nil && ctx.Err() == nil {
+			s.log.Error("could not remove expired push notifications", "error", err)
+		} else if jobs > 0 {
+			s.log.Debug("removed expired push notifications", "count", jobs)
 		}
 	}
 	purge()

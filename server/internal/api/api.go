@@ -14,13 +14,17 @@ import (
 
 	"github.com/vignesh-ramsh/flare/server/internal/auth"
 	"github.com/vignesh-ramsh/flare/server/internal/config"
+	"github.com/vignesh-ramsh/flare/server/internal/push"
 	"github.com/vignesh-ramsh/flare/server/internal/realtime"
 )
 
 // Deps are what the API needs to do its work.
 type Deps struct {
-	Hub    *realtime.Hub
-	Auth   *auth.Service
+	Hub  *realtime.Hub
+	Auth *auth.Service
+	// Push registers devices for push notifications. Nil means the server has
+	// none, and the device endpoints say so.
+	Push   *push.Service
 	Config config.Config
 	Log    *slog.Logger
 
@@ -69,6 +73,10 @@ func (a *API) routes() []route {
 		{"GET /readyz", a.readyz},
 		{"GET /v1/config", a.serverConfig},
 		{"POST /v1/messages", a.publishJSON},
+		{"GET /v1/messages/{id}", a.getMessage},
+		{"POST /v1/devices", a.registerDevice},
+		{"PUT /v1/devices/{id}/subscriptions", a.followTopics},
+		{"DELETE /v1/devices/{id}", a.removeDevice},
 		{"GET /v1/ws", a.websocket},
 		{"POST /v1/auth/login", a.login},
 		{"GET /v1/account", a.account},

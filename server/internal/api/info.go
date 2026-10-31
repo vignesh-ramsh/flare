@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/vignesh-ramsh/flare/server/internal/apierr"
+	"github.com/vignesh-ramsh/flare/server/internal/push"
 )
 
 // APIVersion is the version of the HTTP API. Clients of the same version work
@@ -16,6 +17,14 @@ const APIVersion = 1
 // features lists what this server can do, so that apps can check for a feature
 // instead of comparing version numbers.
 var features = []string{"publish", "poll", "sse", "websocket", "accounts"}
+
+// featuresOf adds to features what depends on how the server is set up.
+func (a *API) featuresOf() []string {
+	if a.Push == nil {
+		return features
+	}
+	return append(append([]string{}, features...), "push")
+}
 
 // index is GET /: a hint for someone who opened the server in a browser.
 func (a *API) index(w http.ResponseWriter, r *http.Request) {
@@ -66,15 +75,42 @@ func (a *API) serverConfig(w http.ResponseWriter, r *http.Request) {
 		Auth struct {
 			DefaultAccess string `json:"default_access"`
 		} `json:"auth"`
+		Push *pushInfo `json:"push,omitempty"`
 	}
 	body.APIVersion = APIVersion
 	body.Name = c.Branding.Name
 	body.PrimaryColor = c.Branding.PrimaryColor
 	body.AppURLScheme = c.Branding.AppURLScheme
 	body.BaseURL = c.BaseURL
-	body.Features = features
+	body.Features = a.featuresOf()
 	body.Limits.MessageSize = c.MessageSizeLimit
 	body.Limits.CacheDuration = int64(c.CacheDuration / time.Second)
 	body.Auth.DefaultAccess = c.Auth.DefaultAccess
+	if a.Push != nil {
+		body.Push = describePush(a.Push.Registry().Describe())
+	}
 	writeJSON(w, http.StatusOK, body)
+}
+
+// pushInfo tells an app how this server can push to it.
+type pushInfo struct {
+	// Providers are the services that work for every app: "webpush", "unifiedpush".
+	Providers []string `json:"providers"`
+	// Apps lists, for "fcm" and "apns", the app IDs the server holds credentials for.
+	Apps map[string][]string `json:"apps,omitempty"`
+	// Relays are the relays the server wakes devices through.
+	Relays []string `json:"relays,omitempty"`
+	// WebPushKey is the public key a browser subscribes with.
+	WebPushKey string `json:"web_push_public_key,omitempty"`
+}
+
+func describePush(d push.Description) *pushInfo {
+	info := &pushInfo{Providers: d.Providers, Relays: d.Relays, WebPushKey: d.WebPushKey}
+	if info.Providers == nil {
+		info.Providers = []string{}
+	}
+	if len(d.Apps) > 0 {
+		info.Apps = d.Apps
+	}
+	return info
 }

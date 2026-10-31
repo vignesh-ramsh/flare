@@ -4,7 +4,7 @@ The Flare server and its command-line client: one static binary, `flare`. Design
 reasoning: [docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md). The HTTP contract:
 [api/openapi.yaml](../api/openapi.yaml).
 
-> **Status: early.** Publishing, subscribing and accounts work, with the delivery guarantee
+> **Status: early.** Publishing, subscribing, accounts and push notifications work, with the delivery guarantee
 > described below. Out of the box the server is open: anyone who can reach it can publish and
 > read every topic. Set `auth.default-access: deny-all` and create users (see
 > [Accounts and access](#accounts-and-access)) before putting it on the internet, and read
@@ -147,6 +147,64 @@ curl -u alice:password -d "hello" https://flare.example.com/alerts-db     # fine
 
 The full contract is in [api/openapi.yaml](../api/openapi.yaml).
 
+## Push notifications
+
+An app that is not running can be woken by the push service of its platform. The server supports four:
+
+| Service | For | Needs |
+|---|---|---|
+| **Web Push** | Browsers, and UnifiedPush distributors that give keys | Nothing: the server makes its own signing key (VAPID) and keeps it in the database |
+| **UnifiedPush** | De-Googled Android, through a distributor such as ntfy | Nothing |
+| **FCM** | Android | The app publisher's Firebase service account key, in `push.apps` |
+| **APNs** | iOS and macOS | The app publisher's Apple `.p8` key, in `push.apps` |
+
+FCM and APNs credentials belong to one app's publisher, so a server can push to the apps it holds keys
+for (your own branded app). The official apps will use a relay, which is not built yet.
+
+How an app uses it (the contract is in [api/openapi.yaml](../api/openapi.yaml)):
+
+```bash
+# 1. Register the device. The secret is shown once; keep it. Log in first (Authorization header)
+#    so that the device follows what you may read.
+curl -H "Authorization: Bearer $TOKEN" -d '{"app_id":"org.example.flare","platform":"android",
+  "provider":"unifiedpush","endpoint":"https://ntfy.example.com/upabc123"}' https://flare.example.com/v1/devices
+# {"id":"ZkQ...","secret":"flrd_..."}
+
+# 2. Say which topics to be woken for. The whole list, each time.
+curl -X PUT -H "Device-Secret: flrd_..." -d '{"topics":["alerts-db","backups"]}' \
+  https://flare.example.com/v1/devices/ZkQ.../subscriptions
+# {"subscriptions":[{"topic":"alerts-db","id":"Hx1..."},{"topic":"backups","id":"q7P..."}]}
+```
+
+From then on, publishing to `alerts-db` sends the device a notification: one JSON object, either the message
+(the same fields as on a stream, with `"sub"` set to the subscription's ID) or, if it is too big for the push
+service or `push.content-free` is on, `{"event":"poll_request","sub":"...","id":"..."}`, with no topic and no
+content. The app then fetches the message with `GET /v1/messages/{id}`, using its own credentials. It knows
+the topic from `sub`, which it saved when it subscribed. Apps drop duplicates by message `id`.
+
+- **Delivery.** Notifications are queued in the same transaction that stores the message, so a stored message is
+  never left without them and a restart loses none. A failed send is retried with growing delays (10 s to 30
+  min, honouring the push service's `Retry-After`) until the message expires. A push service that says the
+  device is gone (`410 Unregistered`, FCM `UNREGISTERED`) gets the device forgotten.
+- **Access.** A device acts with the access of whoever registered it, checked when it follows a topic and again
+  before every notification, so taking access away stops its notifications. A device registered without
+  logging in has what an anonymous visitor has; on a server that lets visitors in only after login, devices
+  must belong to a user.
+- **What the push services see.** Web Push is encrypted for the device. FCM, APNs and a UnifiedPush distributor
+  can read what they carry. If that matters, set `push.content-free: true`: they then see only that something
+  arrived.
+- **Endpoints.** Web Push and UnifiedPush endpoints are URLs that users choose, so the server accepts only https
+  URLs at public addresses, checked at the moment it connects, and follows no redirects. For a distributor on
+  your own network, set `push.allow-private-endpoints: true`, which also lets anyone who can register a
+  device make the server send requests to that network.
+- **Limits.** 20 devices per user (1000 anonymous ones in all), 100 topics per device. Registering a token
+  that is already registered replaces the earlier registration.
+
+**Not yet:** the relay, so FCM and APNs work only for apps whose keys are in `push.apps`; per-topic privacy
+settings; rate limits on registration. **Tested against fakes only:** FCM and APNs. The Web Push encryption
+matches the test vector in RFC 8291; the FCM and APNs requests follow Google's and Apple's documentation, but
+have not been run against the real services, so expect to fix details when you first do.
+
 ## Configuration
 
 Settings come from built-in defaults, then a YAML file (`--config` or `FLARE_CONFIG`), then
@@ -162,6 +220,12 @@ yet, is an **error**, so a typo can never leave something silently unconfigured.
 | `cache-duration` | `24h` | How long messages are kept (1m to 8760h) |
 | `message-size-limit` | `4096` | Largest message, in bytes |
 | `auth.default-access` | `read-write` | What a visitor who is not logged in may do, and what a user may do where no rule applies: `read-write`, `read-only`, `write-only`, `deny-all` |
+| `push.enabled` | `true` | Accept devices and send push notifications |
+| `push.content-free` | `false` | Never put message content in a push; devices fetch it |
+| `push.web-push`, `push.unified-push` | `true` | Those services |
+| `push.vapid-subject` | `base-url` | `mailto:` or `https:` contact for Web Push services |
+| `push.allow-private-endpoints` | `false` | Let push endpoints be on private networks and plain http |
+| `push.apps` | none | Per-app FCM and APNs credentials; see [deploy/server.yml](../deploy/server.yml) |
 | `trusted-proxies` | none | Reverse proxies (addresses or CIDR ranges) believed when they say who a client is in `X-Forwarded-For`; used to count failed logins per client |
 | `branding.name`, `.primary-color`, `.app-url-scheme` | Flare, `#F97316`, `flare` | How the server presents itself to apps |
 
@@ -184,8 +248,8 @@ finish, and exits. Subscribers reconnect and catch up.
 
 | | |
 |---|---|
-| **Works** | Publishing (headers and JSON); subscribing by JSON stream, SSE, WebSocket and poll; catching up with `since`; SQLite storage that survives restarts; expiry; users, passwords, access tokens and per-topic access rules, with the revocation of open connections and a limit on failed logins; health checks; `/v1/config`; graceful shutdown; the `flare publish`, `flare subscribe`, `flare login`, `flare user`, `flare token` and `flare access` commands |
-| **Not yet** | Rate limits on publishing and other abuse protection (the failed-login limit is the only one). Sign-up by users themselves, changing one's own password, reserving topic names. Push notifications through FCM, APNs, UnifiedPush and Web Push, and the push relay. Attachments, delayed delivery, action buttons, Markdown. Retracting a message. End-to-end encryption. PostgreSQL and NATS (cluster mode). Prometheus metrics. The web app. Built-in TLS |
+| **Works** | Publishing (headers and JSON); subscribing by JSON stream, SSE, WebSocket and poll; catching up with `since`; SQLite storage that survives restarts; expiry; users, passwords, access tokens and per-topic access rules, with the revocation of open connections and a limit on failed logins; push notifications through Web Push, UnifiedPush, FCM and APNs, with a durable queue and retries; health checks; `/v1/config`; graceful shutdown; the `flare publish`, `flare subscribe`, `flare login`, `flare user`, `flare token` and `flare access` commands |
+| **Not yet** | Rate limits on publishing and other abuse protection (the failed-login limit is the only one). Sign-up by users themselves, changing one's own password, reserving topic names. The push relay. Attachments, delayed delivery, action buttons, Markdown. Retracting a message. End-to-end encryption. PostgreSQL and NATS (cluster mode). Prometheus metrics. The web app. Built-in TLS |
 
 Until rate limits exist, **don't expose an open server to the internet**: set
 `auth.default-access: deny-all`, or listen on `127.0.0.1`, or keep it on a private network. Even with
@@ -200,6 +264,7 @@ cmd/flare/          the command: serve, publish, subscribe, login, user, token, 
 internal/
   api/              HTTP routes, publish and subscribe handlers, middleware
   realtime/         the hub (storing and delivering) and the wire formats: JSON, SSE, WebSocket
+  push/             devices, the notification queue and its dispatcher, and the senders (Web Push, UnifiedPush, FCM, APNs)
   broker/           fan-out to live subscribers (in-process; NATS later)
   store/            message storage (SQLite; PostgreSQL later)
   message/          what a message is, and the rules for what may be published

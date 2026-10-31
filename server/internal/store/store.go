@@ -3,16 +3,25 @@ package store
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/vignesh-ramsh/flare/server/internal/message"
 )
 
+// ErrNotFound is returned when the message asked for isn't stored, or has expired.
+var ErrNotFound = errors.New("not found")
+
 // Store keeps messages so that a subscriber that was offline can catch up.
 // SQLite implements it for a single server; PostgreSQL will for a cluster.
 type Store interface {
-	// Insert saves m. It returns only once the message is durably stored.
+	// Insert saves m. It returns only once the message is durably stored. In the
+	// same transaction it queues a push notification for every device subscribed to
+	// the topic, so that a stored message is never left without them.
 	Insert(ctx context.Context, m message.Message) error
+
+	// Message returns the unexpired message with the given ID, or ErrNotFound.
+	Message(ctx context.Context, id string, now time.Time) (message.Message, error)
 
 	// After returns up to limit unexpired messages from any of topics whose ID
 	// sorts after afterID (use "" for all of them), oldest first.
