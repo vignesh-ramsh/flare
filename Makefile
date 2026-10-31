@@ -35,7 +35,7 @@ app-check: brand-check ## Check formatting, analyze and test the Flutter app (se
 	cd app && flutter analyze && flutter test
 
 app-integration: server ## Run the app on Linux against the real server (needs xvfb, libsecret and a built app)
-	cd app && HOME=$$(mktemp -d) FLARE_SERVER_BIN=$(abspath server/bin/flare) xvfb-run -a -s "-screen 0 1280x720x24" flutter test integration_test -d linux
+	cd app && HOME=$$(mktemp -d) FLARE_SERVER_BIN=$(abspath server/bin/flare) xvfb-run -a -s "-screen 0 1280x720x24" flutter test integration_test/app_test.dart -d linux
 
 app-notifications: server ## Run the app on Linux against the real server and a real notification daemon (needs dunst, xvfb)
 	cd app && HOME=$$(mktemp -d) FLARE_SERVER_BIN=$(abspath server/bin/flare) dbus-run-session -- xvfb-run -a -s "-screen 0 1280x720x24" bash -c 'dunst >/dev/null 2>&1 & sleep 1; flutter test integration_test/notifications_test.dart -d linux'
