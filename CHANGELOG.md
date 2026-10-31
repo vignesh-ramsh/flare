@@ -73,4 +73,12 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   something listens to it) and a program name Flutter's tool could not find.
 - The brand tool now keeps `set(BINARY_NAME "...")` in the Linux and Windows projects current, because
   Flutter's tool reads that literal line to find the program to run.
+- Desktop notifications (Windows, macOS, Linux): a message that arrives becomes a notification, by priority
+  (1 listed only, 2 quiet, 3 normal, 4 and 5 stay until dismissed), unless the topic is muted or below its minimum
+  priority, notifications are paused, or the user is reading that thread. History fetched on a first
+  subscription is stored without a notification each, and a burst becomes one. Settings > Notifications and a
+  per-topic bell set the choices; a system tray (open, the four latest messages, pause, quit) keeps the app
+  running when the window is closed, but only where a tray exists. Verified on Linux against a real
+  notification daemon (`make app-notifications`); Windows and macOS build in CI and are not yet run.
+- The brand tool exposes `Brand.windowsIdentity` for Windows toast notifications.
 

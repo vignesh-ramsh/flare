@@ -9,6 +9,7 @@ import '../l10n/app_localizations.dart';
 import '../features/topics/connection_banner.dart';
 import '../ui/brand_logo.dart';
 import '../ui/unread_badge.dart';
+import 'routes.dart';
 import 'theme.dart';
 import 'window_class.dart';
 
@@ -280,7 +281,3 @@ class _SidebarTopic extends StatelessWidget {
     );
   }
 }
-
-/// The route of a topic's thread.
-String topicLocation(String host, String name) =>
-    '/topic/${Uri.encodeComponent(host)}/${Uri.encodeComponent(name)}';

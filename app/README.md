@@ -20,7 +20,7 @@ the translations (Flutter's `gen-l10n`) and the database code (`build_runner`). 
 cd app && flutter run -d linux
 ```
 
-On Linux you also need `clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libsecret-1-dev`. At run time the app keeps sign-ins in the desktop's keyring (GNOME Keyring, KWallet); where there is none, it says so and keeps a sign-in only until the app closes.
+On Linux you also need `clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libsecret-1-dev libx11-dev libxi-dev`. At run time the app keeps sign-ins in the desktop's keyring (GNOME Keyring, KWallet); where there is none, it says so and keeps a sign-in only until the app closes.
 
 To check your change the way CI does, run `make app-check`: formatting, analysis, the brand-name check and
 all the tests. Some tests run the app's connection code against the real Flare server; they are skipped
@@ -31,9 +31,16 @@ make server
 FLARE_SERVER_BIN=$PWD/server/bin/flare make app-check
 ```
 
+On a Linux desktop, notifications go to whatever notification daemon the desktop runs (GNOME Shell, KDE,
+dunst), and the tray needs a panel that hosts tray icons (KDE does; GNOME needs its AppIndicator extension).
+Without a tray, closing the window quits the app.
+
 `make app-integration` goes further: it runs the whole app on Linux, nothing replaced, against the real
 server (first run, signing in, subscribing, a live message). It needs `xvfb`. Run it before changing how
-the app starts or stores anything: it finds what only the real platform shows.
+the app starts or stores anything: it finds what only the real platform shows. `make app-notifications` does
+the same for notifications, with a real notification daemon (`dunst`) on a real D-Bus session: it checks
+that history, the thread being read, minimum-priority messages and muted topics stay quiet, and that
+others are announced, and that a high-priority one stays until dismissed.
 
 ## Where things are
 
@@ -42,6 +49,8 @@ the app starts or stores anything: it finds what only the real platform shows.
 | `lib/app` | The app widget, theme, routes, window size classes and the adaptive shell (bottom bar, rail, sidebar) |
 | `lib/features` | One folder per screen: `topics`, `thread`, `add` (Subscribe), `inbox`, `settings` |
 | `lib/net` | The connection (protocol frames, backoff, one WebSocket per server, the manager that follows the database) and the REST client |
+| `lib/notifications` | Deciding what to announce (`decideLevel`), building the notification, and showing it through the platform |
+| `lib/desktop` | The system tray, its menu, and what closing the window does |
 | `lib/auth` | Sign-in: the REST login, and the saved sign-ins kept in the platform's secure storage |
 | `lib/data` | Repositories over the database, the models screens read, and the Riverpod providers |
 | `lib/core/db` | The drift schema and how the database is opened |

@@ -22,6 +22,11 @@ dependencies:
   web_socket_channel: ^3.0.3
   http: ^1.6.0
   flutter_secure_storage: ^11.2.0
+  flutter_local_notifications: ^22.3.3
+  tray_manager: ^0.8.0
+  window_manager: ^0.5.2
+  uuid: ^4.6.0
+  dbus: ^0.8.0
 
 dev_dependencies:
   flutter_test:
@@ -37,3 +42,6 @@ flutter:
   generate: true
   assets:
     - assets/brand/logo.png
+    - assets/brand/tray_linux.png
+    - assets/brand/tray_macos_template.png
+    - assets/brand/tray_windows.ico

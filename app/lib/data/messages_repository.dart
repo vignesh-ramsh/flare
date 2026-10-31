@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:drift/drift.dart';
 
 import '../core/db/database.dart';
@@ -10,6 +12,11 @@ class MessagesRepository {
   MessagesRepository(this._db);
 
   final AppDatabase _db;
+  final _stored = StreamController<IncomingMessage>.broadcast();
+
+  /// Each message as it is newly stored: not one that was already there, and not one for a
+  /// topic the user is not subscribed to. Notifications are driven from this.
+  Stream<IncomingMessage> get stored => _stored.stream;
 
   /// A topic's messages, newest first.
   Stream<List<MessageRow>> watchTopic(
@@ -49,7 +56,13 @@ class MessagesRepository {
   /// Stores a message and moves the topic's cursor forward. Receiving the same
   /// message again, by push and by catch-up, changes nothing. Returns whether
   /// the message was new. Messages for topics the user is not subscribed to are dropped.
-  Future<bool> store(IncomingMessage message) {
+  Future<bool> store(IncomingMessage message) async {
+    final created = await _insert(message);
+    if (created && !_stored.isClosed) _stored.add(message);
+    return created;
+  }
+
+  Future<bool> _insert(IncomingMessage message) {
     return _db.transaction(() async {
       final topic =
           await (_db.select(_db.topics)..where(

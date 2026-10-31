@@ -5,6 +5,7 @@ import '../data/models.dart';
 import '../features/add/add_screen.dart';
 import '../features/inbox/inbox_screen.dart';
 import '../features/servers/server_modals.dart';
+import '../features/settings/notifications_screen.dart';
 import '../features/settings/server_detail_screen.dart';
 import '../features/settings/about_screen.dart';
 import '../features/settings/servers_screen.dart';
@@ -70,6 +71,10 @@ GoRouter createRouter({String initialLocation = '/', FirstRunGate? firstRun}) {
                     ),
                   ),
                 ],
+              ),
+              GoRoute(
+                path: 'notifications',
+                builder: (context, state) => const NotificationsScreen(),
               ),
               GoRoute(
                 path: 'about',

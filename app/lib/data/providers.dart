@@ -6,6 +6,7 @@ import '../core/db/database.dart';
 import 'messages_repository.dart';
 import 'models.dart';
 import 'servers_repository.dart';
+import 'settings_repository.dart';
 import 'topics_repository.dart';
 
 /// The on-device database. Tests override it with an in-memory one.
@@ -44,6 +45,15 @@ final topicsRepositoryProvider = Provider(
 );
 final messagesRepositoryProvider = Provider(
   (ref) => MessagesRepository(ref.watch(databaseProvider)),
+);
+
+final settingsRepositoryProvider = Provider(
+  (ref) => AppSettingsRepository(ref.watch(databaseProvider)),
+);
+
+/// The user's notification and window choices.
+final notificationPrefsProvider = StreamProvider<NotificationPrefs>(
+  (ref) => ref.watch(settingsRepositoryProvider).watch(),
 );
 
 final serversProvider = StreamProvider(

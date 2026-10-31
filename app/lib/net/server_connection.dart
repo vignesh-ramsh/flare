@@ -69,6 +69,7 @@ class ServerConnection {
     this.pingInterval = const Duration(seconds: 20),
     this.stableAfter = const Duration(seconds: 10),
     this.relagDelay = const Duration(seconds: 1),
+    this.backfillAge = const Duration(seconds: 10),
     this._now = DateTime.now,
   }) : _wsUri = websocketUri(url),
        _backoff = backoff ?? Backoff();
@@ -90,6 +91,10 @@ class ServerConnection {
   /// How long to wait before following a topic again after the server dropped it for
   /// being too slow.
   final Duration relagDelay;
+
+  /// On a topic's first fetch, messages older than this when they arrive are history, not news:
+  /// they are stored without a notification each.
+  final Duration backfillAge;
 
   final _statuses = StreamController<ServerStatus>.broadcast();
   ServerStatus _status = const ServerStatus();
@@ -282,6 +287,11 @@ class ServerConnection {
     final cursor = await _store.cursorOf(serverId, topic);
     if (session.closed || !_topics.contains(topic)) return;
     session.subscribed.add(topic);
+    if (cursor == null) {
+      session.firstFetch.add(topic);
+    } else {
+      session.firstFetch.remove(topic);
+    }
     _send(session, subscribeFrame(topic, cursor ?? 'all'));
   }
 
@@ -299,7 +309,14 @@ class ServerConnection {
         developer.log('ignored a frame it could not read', name: 'connection');
       case final MessageFrame frame:
         if (_topics.contains(frame.topic)) {
-          await _store.storeMessage(frame.toIncoming(serverId));
+          final age = _now().difference(
+            DateTime.fromMillisecondsSinceEpoch(frame.time * 1000),
+          );
+          final history =
+              session.firstFetch.contains(frame.topic) && age > backfillAge;
+          await _store.storeMessage(
+            frame.toIncoming(serverId, silent: history),
+          );
         }
       case final SubscribedFrame frame:
         if (_topics.contains(frame.topic)) {
@@ -410,6 +427,10 @@ class _Session {
 
   /// Topics the server refused on this connection; not tried again until it reconnects.
   final Set<String> failed = {};
+
+  /// Topics subscribed from the start of what the server holds, because the app had nothing
+  /// for them yet: their backlog is history.
+  final Set<String> firstFetch = {};
 
   Future<void> sync = Future<void>.value();
   bool closed = false;

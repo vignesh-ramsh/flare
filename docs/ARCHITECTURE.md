@@ -382,8 +382,10 @@ sequenceDiagram
 
 Desktop OSes allow background processes, so the app keeps a persistent WebSocket itself:
 
-- Runs in the system tray / menu bar, starts at login, and shows native notifications.
-- Linux tray icons need `libayatana-appindicator`; notifications go through D-Bus.
+- Runs in the system tray / menu bar, starts at login (not built yet), and shows native notifications.
+- Linux tray icons are StatusNotifierItems, so they need a panel that hosts them (KDE does; GNOME needs its
+  AppIndicator extension); notifications go through D-Bus. Without a tray, closing the window quits the app.
+  What is built, and how a message becomes a notification, is in [APP-DESIGN.md](APP-DESIGN.md#as-built-desktop-notifications).
 - For servers and headless machines, the Go CLI does the same job with a tiny footprint:
   `flare subscribe backups --exec 'notify-send "$title" "$message"'`, run as a systemd user service.
 

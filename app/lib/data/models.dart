@@ -58,6 +58,7 @@ class IncomingMessage {
     this.priority = 3,
     this.tags = const [],
     this.click,
+    this.silent = false,
   });
 
   final int serverId;
@@ -71,6 +72,25 @@ class IncomingMessage {
   final int priority;
   final List<String> tags;
   final String? click;
+
+  /// History fetched when a topic was first subscribed to: stored, but not worth a
+  /// notification for each message.
+  final bool silent;
+}
+
+/// What a notification needs to know about the topic a message arrived on.
+class TopicContext {
+  const TopicContext({
+    required this.topicId,
+    required this.host,
+    required this.muted,
+    required this.minPriority,
+  });
+
+  final int topicId;
+  final String host;
+  final bool muted;
+  final int minPriority;
 }
 
 /// A stored message and the topic it belongs to, for the inbox.

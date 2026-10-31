@@ -9,7 +9,9 @@ import '../../data/providers.dart';
 import '../../l10n/app_localizations.dart';
 import '../../ui/empty_state.dart';
 import '../../ui/message_card.dart';
+import '../../notifications/viewing.dart';
 import '../topics/connection_banner.dart';
+import 'topic_notifications_dialog.dart';
 
 /// Whether the large layout shows the details pane beside the thread.
 class DetailsVisible extends Notifier<bool> {
@@ -91,6 +93,11 @@ class ThreadPane extends ConsumerWidget {
         ],
       ),
       actions: [
+        IconButton(
+          tooltip: l10n.topicNotifications,
+          icon: const Icon(Icons.notifications_outlined),
+          onPressed: () => TopicNotificationsDialog.show(context, topic),
+        ),
         if (context.windowClass == WindowClass.large)
           IconButton(
             tooltip: detailsVisible ? l10n.hideDetails : l10n.showDetails,
@@ -115,9 +122,31 @@ class _Thread extends ConsumerStatefulWidget {
 }
 
 class _ThreadState extends ConsumerState<_Thread> {
+  late final ViewedTopic _viewed;
+  late final TopicRef _ref;
+
+  @override
+  void dispose() {
+    // A provider must not change while the widget tree is being torn down.
+    Future.microtask(() {
+      try {
+        _viewed.leave(_ref);
+      } on Object {
+        // The app is closing and the provider is already gone.
+      }
+    });
+    super.dispose();
+  }
+
   @override
   void initState() {
     super.initState();
+    _viewed = ref.read(viewedTopicProvider.notifier);
+    _ref = (host: widget.topic.host, name: widget.topic.name);
+    // After the frame: a provider must not change while widgets are being built.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _viewed.show(_ref);
+    });
     // Showing the newest message is what reads it: whenever the thread on screen
     // holds messages the marker is behind, move the marker.
     final topic = widget.topic;

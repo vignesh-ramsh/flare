@@ -1,7 +1,12 @@
+import 'dart:developer' as developer;
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../auth/credentials.dart';
 import '../net/providers.dart';
+import '../app/app.dart';
+import '../desktop/desktop_services.dart';
+import '../notifications/providers.dart';
 import 'messages_repository.dart';
 import 'providers.dart';
 import 'server_url.dart';
@@ -36,4 +41,23 @@ Future<void> startServices(ProviderContainer container) async {
       .read(messagesRepositoryProvider)
       .pruneOlderThan(container.read(clockProvider)().subtract(defaultHistory));
   container.read(connectionManagerProvider).start();
+  await startNotifications(container);
+  await startDesktop(container);
+}
+
+/// Starts showing notifications for what arrives, on platforms where the app holds its own
+/// connection. If the system's notification service cannot be reached the app carries on
+/// without notifications rather than failing to start.
+Future<void> startNotifications(ProviderContainer container) async {
+  if (!holdsOwnConnection) return;
+  try {
+    await container.read(notificationSinkProvider).initialize((route) {
+      container.read(routerProvider).go(route);
+      container.read(windowActionsProvider).bringToFront();
+    });
+  } on Object catch (error) {
+    developer.log('notifications unavailable: $error', name: 'notifications');
+    return;
+  }
+  container.read(notificationServiceProvider).start();
 }

@@ -137,6 +137,60 @@ void main() {
     });
   });
 
+  group('history on a first fetch', () {
+    Future<List<IncomingMessage>> collect() async {
+      final events = <IncomingMessage>[];
+      h.messages.stored.listen(events.add);
+      return events;
+    }
+
+    int nowSeconds([int ago = 0]) =>
+        DateTime.now().millisecondsSinceEpoch ~/ 1000 - ago;
+
+    test('is silent when the topic is new to the app, but a message that is new is not', () async {
+      await h.init(['alerts']);
+      final events = await collect();
+      h.server.keep(wireMessage('alerts', mid(1), time: nowSeconds(3600)));
+      h.server.keep(wireMessage('alerts', mid(2), time: nowSeconds(120)));
+      final c = h.connect(topics: {'alerts'})..start();
+      await eventually(() => events.length == 2);
+      await connected(c);
+
+      h.server.publish(wireMessage('alerts', mid(3), time: nowSeconds()));
+      await eventually(() => events.length == 3);
+
+      expect(events.map((m) => m.silent), [true, true, false]);
+    });
+
+    test(
+      'is not silent for a topic the app already has a cursor for',
+      () async {
+        await h.init(['alerts']);
+        final events = await collect();
+        h.server.keep(wireMessage('alerts', mid(1), time: nowSeconds(3600)));
+        final c = h.connect(topics: {'alerts'})..start();
+        await eventually(() => events.length == 1);
+        expect(events.single.silent, isTrue);
+
+        // The app was away; what it missed is news even though it is old.
+        h.server.keep(wireMessage('alerts', mid(2), time: nowSeconds(7200)));
+        h.server.dropConnections();
+        await eventually(() => events.length == 2);
+        expect(events.last.silent, isFalse);
+        await connected(c);
+      },
+    );
+
+    test('treats a message just published as news on a new topic', () async {
+      await h.init(['alerts']);
+      final events = await collect();
+      h.server.keep(wireMessage('alerts', mid(1), time: nowSeconds(2)));
+      h.connect(topics: {'alerts'}).start();
+      await eventually(() => events.length == 1);
+      expect(events.single.silent, isFalse);
+    });
+  });
+
   group('changing topics', () {
     test('holds no connection while there is nothing to follow', () async {
       await h.init([]);

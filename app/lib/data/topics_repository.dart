@@ -108,6 +108,38 @@ class TopicsRepository {
     return row?.cursor;
   }
 
+  /// What a notification needs to know about a topic, or null if the user is not
+  /// subscribed to it.
+  Future<TopicContext?> contextOf(int serverId, String name) async {
+    final query =
+        _db.select(_db.topics).join([
+          innerJoin(_db.servers, _db.servers.id.equalsExp(_db.topics.serverId)),
+        ])..where(
+          _db.topics.serverId.equals(serverId) & _db.topics.name.equals(name),
+        );
+    final row = await query.getSingleOrNull();
+    if (row == null) return null;
+    final topic = row.readTable(_db.topics);
+    return TopicContext(
+      topicId: topic.id,
+      host: row.readTable(_db.servers).host,
+      muted: topic.muted,
+      minPriority: topic.minPriority,
+    );
+  }
+
+  /// A muted topic keeps receiving and storing, and notifies nobody.
+  Future<void> setMuted(int topicId, bool muted) =>
+      (_db.update(_db.topics)..where((t) => t.id.equals(topicId))).write(
+        TopicsCompanion(muted: Value(muted)),
+      );
+
+  /// Messages below this priority (1 to 5) are stored but do not notify.
+  Future<void> setMinPriority(int topicId, int priority) =>
+      (_db.update(_db.topics)..where((t) => t.id.equals(topicId))).write(
+        TopicsCompanion(minPriority: Value(priority.clamp(1, 5))),
+      );
+
   /// Moves the topic's read marker to its newest message. It never moves back.
   Future<void> markRead(int serverId, String name) {
     return _db.customUpdate(

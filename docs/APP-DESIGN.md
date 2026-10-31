@@ -152,7 +152,7 @@ fails the build if one does.
 2. **Connection** (done, see below): one WebSocket per server, catch-up from the cursor, backoff, status. The REST client comes with step 4, when sign-in needs it.
 3. **Thread and Subscribe**: reading and replying, the Subscribe sheet and dialog, deep links.
 4. **First run, Servers, Settings**: sign-in, tokens, the delivery choice.
-5. **Notifications**: Android channels and service, the iOS extension, desktop tray and toasts, Web Push.
+5. **Notifications**: the desktop tray and notifications (done, see below), then Android channels and service, the iOS extension, Web Push.
 6. **Inbox and Search**, then polish: accessibility pass, translations, store listings.
 
 ## As built: the skeleton
@@ -247,4 +247,40 @@ screens never touch it.
   subscriptions.
 - **Not built:** the REST client has `config`, `login` and `revokeToken` only; changing a password,
   listing the account's tokens, and creating accounts are done on the server's command line.
+
+## As built: desktop notifications
+
+Windows, macOS and Linux hold their own connection, so the app announces what arrives. Phones are
+woken by the system's push service instead (not built yet); none of this runs there.
+
+- **What becomes a notification** (`decideLevel`, one pure function). In this order a message stays in the
+  list only if: it is history fetched when a topic was first subscribed to; notifications are off or paused;
+  the topic is muted; it is below the topic's minimum priority; it is priority 1 (min); or the window is
+  focused on that topic's thread (the user is reading it). Otherwise priority 2 is a notification with no sound,
+  3 a normal one, and 4 and 5 stay until dismissed. A sound plays only if the user allows it.
+- **History is not news.** On a topic's first fetch the app stores what the server holds without a
+  notification each; a message older than 10 seconds when it arrives is history, one just published is not.
+  Once a topic has a cursor, everything after it is news, even if the app was away for hours.
+- **A burst is one notification.** Messages that arrive close together on a topic (what piled up while the app
+  was away) are announced one by one up to three, and as "N new messages" beyond that, at the most prominent
+  level among them so an urgent one is not buried.
+- **What it shows:** the title (or the topic), with the priority word before it for anything not default
+  ("High · Disk"), the text, and "topic on server". Settings can keep the text out ("New message" only), for a
+  lock screen or a shared screen.
+- **Choices:** Settings > Notifications (show, sound, show the text, pause for an hour, and on a desktop whether
+  to keep running in the tray), and per topic from the bell in the thread (mute, minimum priority). They are
+  kept in the database (schema version 2, with a migration).
+- **Tapping a notification** opens its thread and brings the window forward.
+- **The tray** (menu bar on macOS, notification area on Windows, a StatusNotifierItem on Linux): its menu opens
+  the app, lists the four latest messages (choosing one opens its thread), pauses or resumes notifications for
+  an hour, and quits; its tooltip counts unread messages. Closing the window hides it to the tray only when the
+  user wants that **and a tray is there**; on Linux that is checked by looking for the StatusNotifierWatcher on
+  the session bus. With no tray, closing the window quits, so the app is never left running unseen.
+- **Platform differences:** Linux sends the notification over D-Bus (critical urgency and no timeout for 4 and
+  5); macOS uses Notification Center with time-sensitive for 4 and 5 and a subtitle; Windows uses toasts with the
+  app's identity from the brand (`Brand.windowsIdentity`, and a GUID derived from it).
+- **Not built:** a repeated sound for priority 5, "Time Sensitive" breaking through Focus on macOS beyond what
+  the system grants, starting at login, notification actions (Open, Mute), and any of it on Android and iOS.
+  Windows and macOS are built in CI but have not been run, so their toasts, tray and permission prompt are
+  unverified; Linux is verified against a real notification daemon.
 

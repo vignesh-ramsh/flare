@@ -79,15 +79,30 @@ class Messages extends Table {
   Set<Column<Object>> get primaryKey => {serverId, id};
 }
 
-@DriftDatabase(tables: [Servers, Topics, Messages])
+/// The user's choices that are not about one server or topic, as text by name. See
+/// `AppSettingsRepository` for the names and what they mean.
+@DataClassName('SettingRow')
+class AppSettings extends Table {
+  TextColumn get key => text()();
+  TextColumn get value => text()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {key};
+}
+
+@DriftDatabase(tables: [Servers, Topics, Messages, AppSettings])
 class AppDatabase extends _$AppDatabase {
   AppDatabase(super.e);
 
+  /// 1: servers, topics, messages. 2: the settings table.
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
+    onUpgrade: (migrator, from, to) async {
+      if (from < 2) await migrator.createTable(appSettings);
+    },
     beforeOpen: (details) async {
       await customStatement('PRAGMA foreign_keys = ON');
     },
