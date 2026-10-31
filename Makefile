@@ -11,7 +11,7 @@ RELEASE ?=
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
 .DEFAULT_GOAL := help
-.PHONY: help brand brand-test brand-check app-setup app-check app-integration app-notifications server server-test api-lint
+.PHONY: help brand brand-test brand-check app-setup app-check app-integration app-notifications server server-test admin-test admin-e2e api-lint
 
 help: ## Show this list
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z_-]+:.*## / {printf "  %-13s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -46,6 +46,12 @@ server: ## Build the Flare server and CLI into server/bin/flare
 server-test: ## Check formatting, vet and run the server's tests with the race detector
 	@cd server && test -z "$$(gofmt -l .)" || { echo "These files need gofmt:"; gofmt -l .; exit 1; }
 	cd server && go vet ./... && go test -race ./...
+
+admin-test: ## Test the Admin UI's colour maths and theme reader (needs Node.js 22 or later)
+	cd server && node --test e2e/*.test.mjs
+
+admin-e2e: server ## Drive the Admin UI in a real browser against the real server (needs Node.js and Playwright with Chromium)
+	cd server && FLARE_SERVER_BIN=$(abspath server/bin/flare) node e2e/admin.e2e.cjs
 
 api-lint: ## Validate api/openapi.yaml and api/relay.yaml (needs Node.js)
 	npx --yes @redocly/cli@2 lint api/openapi.yaml

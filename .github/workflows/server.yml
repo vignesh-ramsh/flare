@@ -1,6 +1,7 @@
 name: Server
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
     paths:
@@ -57,6 +58,30 @@ jobs:
         working-directory: server
       - name: Build the static binary
         run: make server
+
+  admin-ui:
+    name: Admin UI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Test the colour maths and theme reader
+        run: make admin-test
+      - name: Install a browser to drive the page
+        run: |
+          mkdir -p "$RUNNER_TEMP/pw" && cd "$RUNNER_TEMP/pw"
+          npm init -y >/dev/null
+          npm install playwright@1.49.1
+          npx playwright install --with-deps chromium
+          echo "NODE_PATH=$RUNNER_TEMP/pw/node_modules" >> "$GITHUB_ENV"
+      - name: Use the page against the real server
+        run: make admin-e2e
 
   api:
     name: OpenAPI

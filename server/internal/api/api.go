@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/vignesh-ramsh/flare/server/internal/admin"
 	"github.com/vignesh-ramsh/flare/server/internal/auth"
 	"github.com/vignesh-ramsh/flare/server/internal/config"
 	"github.com/vignesh-ramsh/flare/server/internal/push"
@@ -67,6 +68,12 @@ func New(d Deps) *API {
 	a := &API{Deps: d, mux: http.NewServeMux()}
 	for _, r := range a.routes() {
 		a.mux.HandleFunc(r.pattern, r.handler)
+	}
+	// The Admin UI is a set of static files, not part of the API: it is not in routes() or the
+	// OpenAPI description, and does nothing the API's own admin endpoints do not check.
+	if err := admin.Register(a.mux); err != nil {
+		// The files are compiled in, so this is a mistake in the build, found by every test.
+		panic(err)
 	}
 	return a
 }
