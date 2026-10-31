@@ -56,11 +56,23 @@ FLARE_SERVER_BIN=$PWD/server/bin/flare make app-check
 
 ## What works on which platform
 
-| | Builds and runs | Named and identified from the brand folder |
-|---|---|---|
-| Linux | Yes, built and run here | Yes: binary name, application ID and window title come from `linux/brand.cmake` |
-| Android, iOS, macOS, Windows | Not checked yet | **Not yet.** `make brand` already writes their brand files, but the native projects still use Flutter's defaults (the name `app`, `com.example.app`) until they are wired to them (docs/ARCHITECTURE.md §12.3) |
-| Web | The project is not created yet | |
+CI (`.github/workflows/app.yml`) builds the app for each platform from a clean checkout and then checks
+the result: the program, bundle or package carries the name and identifier from the brand files. Only Linux
+has also been run (here, against the real server). Nothing has been run on a phone, a simulator, an
+emulator, a Mac or a Windows PC.
+
+| | Builds in CI | Named and identified from the brand folder | Run |
+|---|---|---|---|
+| Linux | Yes | Yes: binary name, application ID and window title (`linux/brand.cmake`) | Yes, against the real server |
+| Android | Yes (debug APK) | Yes: package name and label checked in the APK | No |
+| iOS | Yes (simulator build) | Yes: bundle ID and display name checked in the app's Info.plist | No |
+| macOS | Yes (debug) | Yes: bundle ID and name checked, and the sandbox's network entitlement | No |
+| Windows | Yes (debug) | Yes: executable name and version resource checked | No |
+| Web | The project is not created yet | | |
+
+Not built in CI yet: release builds and signing, the Android `play` and `foss` flavours, and any packaging
+(MSIX, dmg, Flatpak, App Store, Play Store). The URL scheme is defined for Android, but no platform registers
+it yet; that comes with deep links.
 
 ## The database
 
