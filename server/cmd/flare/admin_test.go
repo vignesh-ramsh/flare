@@ -334,3 +334,40 @@ func TestLoginCommand(t *testing.T) {
 		}
 	}
 }
+
+func TestUserRoleDisableAndEnableCommands(t *testing.T) {
+	db := newDB(t)
+	mustSucceed(t, admin(t, db, secret+"\n", "user", "add", "alice"))
+
+	r := mustSucceed(t, admin(t, db, "", "user", "role", "alice", "admin"))
+	if !strings.Contains(r.stderr, "alice is now admin") {
+		t.Errorf("stderr = %q", r.stderr)
+	}
+	r = mustSucceed(t, admin(t, db, "", "user", "disable", "alice"))
+	if !strings.Contains(r.stderr, "Disabled alice") {
+		t.Errorf("stderr = %q", r.stderr)
+	}
+	r = mustSucceed(t, admin(t, db, "", "user", "list"))
+	if !strings.Contains(r.stdout, "STATE") || !strings.Contains(r.stdout, "disabled") || !strings.Contains(r.stdout, "admin") {
+		t.Errorf("user list =\n%s", r.stdout)
+	}
+	r = mustSucceed(t, admin(t, db, "", "user", "enable", "alice"))
+	if !strings.Contains(r.stderr, "Enabled alice") {
+		t.Errorf("stderr = %q", r.stderr)
+	}
+	r = mustSucceed(t, admin(t, db, "", "user", "list"))
+	if !strings.Contains(r.stdout, "active") || strings.Contains(r.stdout, "disabled") {
+		t.Errorf("user list =\n%s", r.stdout)
+	}
+
+	for _, args := range [][]string{
+		{"user", "role", "alice", "king"},
+		{"user", "role", "nobody", "admin"},
+		{"user", "disable", "nobody"},
+		{"user", "enable", "nobody"},
+	} {
+		if r := admin(t, db, "", args...); r.err == nil {
+			t.Errorf("%v succeeded", args)
+		}
+	}
+}

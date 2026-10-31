@@ -31,6 +31,9 @@ type User struct {
 	Name      string
 	Role      Role
 	CreatedAt time.Time
+	// Disabled means the user cannot log in and their tokens do not work, until they are
+	// enabled again. Nothing of theirs is deleted.
+	Disabled bool
 }
 
 // Token is an access token's record. The secret itself is not kept.

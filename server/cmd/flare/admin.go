@@ -64,7 +64,7 @@ func when(t *time.Time) string {
 func newUserCmd(c cli) *cobra.Command {
 	var flags configFlags
 	cmd := adminGroup("user", "Manage users",
-		`Create, list and delete users, and set their passwords. These work on the
+		`Create, list, disable and delete users, set their passwords and roles. These work on the
 database directly, so run them on the server's machine (in Docker:
 docker compose exec flare flare user add alice).
 
@@ -110,9 +110,13 @@ could see it. An administrator may read and write every topic.`,
 					return err
 				}
 				tw := newTable(c.stdout)
-				fmt.Fprintln(tw, "NAME\tROLE\tCREATED")
+				fmt.Fprintln(tw, "NAME\tROLE\tSTATE\tCREATED")
 				for _, u := range users {
-					fmt.Fprintf(tw, "%s\t%s\t%s\n", u.Name, u.Role, when(&u.CreatedAt))
+					state := "active"
+					if u.Disabled {
+						state = "disabled"
+					}
+					fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", u.Name, u.Role, state, when(&u.CreatedAt))
 				}
 				return tw.Flush()
 			})
@@ -158,7 +162,54 @@ within half a minute; access tokens keep working, and are revoked separately wit
 			})
 		},
 	}
-	cmd.AddCommand(add, list, passwd, del)
+	role := &cobra.Command{
+		Use:   "role <name> <user|admin>",
+		Short: "Make a user an administrator, or an ordinary user",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return withAccounts(c, cmd, &flags, func(svc *auth.Service) error {
+				if err := svc.SetRole(cmd.Context(), args[0], auth.Role(args[1])); err != nil {
+					return err
+				}
+				fmt.Fprintf(c.stderr, "%s is now %s.\n", args[0], args[1])
+				return nil
+			})
+		},
+	}
+
+	disable := &cobra.Command{
+		Use:   "disable <name>",
+		Short: "Stop a user logging in, without deleting anything",
+		Long: `Disable a user. They cannot log in, their tokens stop working, and what they have
+open is cut off within half a minute. Their account, tokens and access rules are
+kept: "flare user enable" restores everything.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return withAccounts(c, cmd, &flags, func(svc *auth.Service) error {
+				if err := svc.SetDisabled(cmd.Context(), args[0], true); err != nil {
+					return err
+				}
+				fmt.Fprintf(c.stderr, "Disabled %s.\n", args[0])
+				return nil
+			})
+		},
+	}
+
+	enable := &cobra.Command{
+		Use:   "enable <name>",
+		Short: "Let a disabled user log in again",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return withAccounts(c, cmd, &flags, func(svc *auth.Service) error {
+				if err := svc.SetDisabled(cmd.Context(), args[0], false); err != nil {
+					return err
+				}
+				fmt.Fprintf(c.stderr, "Enabled %s.\n", args[0])
+				return nil
+			})
+		},
+	}
+	cmd.AddCommand(add, list, passwd, role, disable, enable, del)
 	return cmd
 }
 

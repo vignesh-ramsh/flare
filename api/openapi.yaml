@@ -253,6 +253,233 @@ paths:
             application/json:
               schema: { type: object }
 
+  /v1/admin/users:
+    get:
+      tags: [Admin]
+      summary: List the users
+      description: Needs an administrator.
+      operationId: listUsers
+      security:
+        - bearerAuth: []
+        - basicAuth: []
+      responses:
+        "200":
+          description: Every user, by name.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [users]
+                properties:
+                  users:
+                    type: array
+                    items: { $ref: "#/components/schemas/User" }
+        default:
+          $ref: "#/components/responses/Error"
+    post:
+      tags: [Admin]
+      summary: Create a user
+      description: |
+        Needs an administrator. A user name is 1-32 lower-case letters, digits, `.`, `_` or
+        `-`, starting with a letter or digit; `everyone` is reserved. `role` is `user` (the
+        default) or `admin`.
+      operationId: createUser
+      security:
+        - bearerAuth: []
+        - basicAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, password]
+              properties:
+                name: { type: string }
+                password: { type: string, format: password }
+                role: { type: string, enum: [user, admin] }
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        default:
+          $ref: "#/components/responses/Error"
+
+  /v1/admin/users/{name}:
+    patch:
+      tags: [Admin]
+      summary: Change a user's role, password or whether they are disabled
+      description: |
+        Needs an administrator. Send any of `role`, `password` and `disabled`. Everything is
+        checked before anything changes. A **disabled** user cannot log in, their tokens stop
+        working and what they have open ends within 30 seconds, but nothing of theirs is deleted:
+        enabling them again restores everything.
+
+        An administrator cannot demote or disable themselves (409): they would be locked out of
+        the place they are working in. Another administrator can.
+      operationId: changeUser
+      security:
+        - bearerAuth: []
+        - basicAuth: []
+      parameters:
+        - $ref: "#/components/parameters/UserName"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                role: { type: string, enum: [user, admin] }
+                password: { type: string, format: password }
+                disabled: { type: boolean }
+      responses:
+        "200":
+          description: The user, as they are now.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        default:
+          $ref: "#/components/responses/Error"
+    delete:
+      tags: [Admin]
+      summary: Delete a user, with their tokens and access rules
+      description: Needs an administrator. An administrator cannot delete themselves (409).
+      operationId: deleteUser
+      security:
+        - bearerAuth: []
+        - basicAuth: []
+      parameters:
+        - $ref: "#/components/parameters/UserName"
+      responses:
+        "204":
+          description: Deleted.
+        default:
+          $ref: "#/components/responses/Error"
+
+  /v1/admin/users/{name}/tokens:
+    get:
+      tags: [Admin]
+      summary: List a user's access tokens
+      description: Needs an administrator. Without their secrets, which are not kept.
+      operationId: listUserTokens
+      security:
+        - bearerAuth: []
+        - basicAuth: []
+      parameters:
+        - $ref: "#/components/parameters/UserName"
+      responses:
+        "200":
+          description: The user's tokens.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [tokens]
+                properties:
+                  tokens:
+                    type: array
+                    items: { $ref: "#/components/schemas/TokenInfo" }
+        default:
+          $ref: "#/components/responses/Error"
+
+  /v1/admin/users/{name}/tokens/{id}:
+    delete:
+      tags: [Admin]
+      summary: Revoke one of a user's access tokens
+      description: Needs an administrator. Anything using the token is cut off, including connections already open (within 30 seconds).
+      operationId: revokeUserToken
+      security:
+        - bearerAuth: []
+        - basicAuth: []
+      parameters:
+        - $ref: "#/components/parameters/UserName"
+        - name: id
+          in: path
+          required: true
+          description: The token's `id`, as listed (not its secret).
+          schema: { type: string }
+      responses:
+        "204":
+          description: Revoked.
+        default:
+          $ref: "#/components/responses/Error"
+
+  /v1/admin/access:
+    get:
+      tags: [Admin]
+      summary: List the access rules
+      description: Needs an administrator. `who` is a user name, or `everyone`.
+      operationId: listAccess
+      security:
+        - bearerAuth: []
+        - basicAuth: []
+      responses:
+        "200":
+          description: Every rule, and what applies where none does.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [rules, default_access]
+                properties:
+                  rules:
+                    type: array
+                    items: { $ref: "#/components/schemas/AccessRule" }
+                  default_access:
+                    type: string
+                    enum: [read-write, read-only, write-only, deny-all]
+        default:
+          $ref: "#/components/responses/Error"
+    put:
+      tags: [Admin]
+      summary: Give a user, or everyone, access to topics
+      description: |
+        Needs an administrator. A rule for the same user and pattern is replaced. The pattern
+        is a topic name where `*` stands for any characters.
+      operationId: grantAccess
+      security:
+        - bearerAuth: []
+        - basicAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AccessRule" }
+      responses:
+        "200":
+          description: The rule.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AccessRule" }
+        default:
+          $ref: "#/components/responses/Error"
+    delete:
+      tags: [Admin]
+      summary: Remove an access rule
+      description: Needs an administrator.
+      operationId: revokeAccess
+      security:
+        - bearerAuth: []
+        - basicAuth: []
+      parameters:
+        - name: who
+          in: query
+          required: true
+          description: A user name, or `everyone`.
+          schema: { type: string }
+        - name: pattern
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "204":
+          description: Removed.
+        default:
+          $ref: "#/components/responses/Error"
+
   /v1/admin/settings:
     get:
       tags: [Admin]
@@ -772,6 +999,12 @@ components:
       description: The secret returned when the device was registered. It is the device's own credential, separate from any user's token.
 
   parameters:
+    UserName:
+      name: name
+      in: path
+      required: true
+      description: The user's name.
+      schema: { type: string }
     SettingKey:
       name: key
       in: path
@@ -1000,6 +1233,23 @@ components:
               pattern: { type: string, examples: ["alerts-*"] }
               access: { type: string, enum: [read-write, read-only, write-only, deny-all] }
               scope: { type: string, enum: [user, everyone] }
+
+    User:
+      type: object
+      required: [name, role, disabled, created]
+      properties:
+        name: { type: string }
+        role: { type: string, enum: [user, admin] }
+        disabled: { type: boolean }
+        created: { type: integer, description: "When the user was created, in Unix seconds." }
+
+    AccessRule:
+      type: object
+      required: [who, pattern, access]
+      properties:
+        who: { type: string, description: "A user name, or `everyone`." }
+        pattern: { type: string, description: "A topic name, where `*` stands for any characters.", examples: ["alerts-*"] }
+        access: { type: string, enum: [read-write, read-only, write-only, deny-all] }
 
     Setting:
       type: object

@@ -771,3 +771,156 @@ func TestChangingTheDefaultWhileAuthorizingIsSafe(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+// --- disabling users, and changing their role --------------------------------
+
+func TestADisabledUserCannotLogInWithAPasswordAndIsToldNothingExtra(t *testing.T) {
+	s, _, _ := setup(t)
+	addUser(t, s, "alice", auth.RoleUser)
+	if err := s.SetDisabled(ctx, "alice", true); err != nil {
+		t.Fatal(err)
+	}
+	_, err := authenticate(s, basic("alice", pw))
+	if !errors.Is(err, auth.ErrBadCredentials) {
+		t.Errorf("a disabled user's right password: %v", err)
+	}
+	// The same answer as a wrong password, so it is not a way to find out who is disabled.
+	_, wrong := authenticate(s, basic("alice", "not the password"))
+	if err.Error() != wrong.Error() {
+		t.Errorf("answers differ: %q and %q", err, wrong)
+	}
+}
+
+func TestADisabledUsersTokensStopWorkingAndWorkAgainWhenTheyAreEnabled(t *testing.T) {
+	s, _, _ := setup(t)
+	alice := addUser(t, s, "alice", auth.RoleUser)
+	secret, _, err := s.IssueToken(ctx, alice.ID, "laptop", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := authenticate(s, "Bearer "+secret); err != nil {
+		t.Fatalf("before: %v", err)
+	}
+
+	if err := s.SetDisabled(ctx, "alice", true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := authenticate(s, "Bearer "+secret); !errors.Is(err, auth.ErrBadCredentials) {
+		t.Errorf("a disabled user's token: %v", err)
+	}
+	if tokens, _ := s.Tokens(ctx, alice.ID); len(tokens) != 1 {
+		t.Errorf("a disabled user's tokens were deleted: %d", len(tokens))
+	}
+
+	if err := s.SetDisabled(ctx, "alice", false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := authenticate(s, "Bearer "+secret); err != nil {
+		t.Errorf("after enabling: %v", err)
+	}
+	if _, err := authenticate(s, basic("alice", pw)); err != nil {
+		t.Errorf("after enabling, with the password: %v", err)
+	}
+}
+
+func TestWhatADisabledUserHasOpenIsCutOffAtTheNextCheck(t *testing.T) {
+	s, _, _ := setup(t)
+	alice := addUser(t, s, "alice", auth.RoleUser)
+	secret, _, _ := s.IssueToken(ctx, alice.ID, "", 0)
+	byToken, err := authenticate(s, "Bearer "+secret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byPassword, err := authenticate(s, basic("alice", pw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Revalidate(ctx, byToken); err != nil {
+		t.Fatalf("still enabled: %v", err)
+	}
+
+	if err := s.SetDisabled(ctx, "alice", true); err != nil {
+		t.Fatal(err)
+	}
+	for name, id := range map[string]auth.Identity{"token": byToken, "password": byPassword} {
+		if _, err := s.Revalidate(ctx, id); !errors.Is(err, auth.ErrBadCredentials) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+}
+
+func TestADisabledUserIsWokenForNothing(t *testing.T) {
+	s, _, _ := setup(t, func(c *auth.ServiceConfig) { c.Default = auth.ReadWrite })
+	alice := addUser(t, s, "alice", auth.RoleUser)
+	root := addUser(t, s, "root", auth.RoleAdmin)
+	for _, u := range []auth.User{alice, root} {
+		if ok, _ := s.MayAs(ctx, u.ID, "alerts", auth.Read); !ok {
+			t.Fatalf("%s before: not allowed", u.Name)
+		}
+		if err := s.SetDisabled(ctx, u.Name, true); err != nil {
+			t.Fatal(err)
+		}
+		if ok, err := s.MayAs(ctx, u.ID, "alerts", auth.Read); err != nil || ok {
+			t.Errorf("%s disabled: %v %v", u.Name, ok, err)
+		}
+	}
+}
+
+func TestDisablingAndRoleChangesNeedAnExistingUser(t *testing.T) {
+	s, _, _ := setup(t)
+	if err := s.SetDisabled(ctx, "nobody", true); !errors.Is(err, auth.ErrNotFound) {
+		t.Errorf("disable: %v", err)
+	}
+	if err := s.SetRole(ctx, "nobody", auth.RoleAdmin); !errors.Is(err, auth.ErrNotFound) {
+		t.Errorf("role: %v", err)
+	}
+}
+
+func TestChangingARole(t *testing.T) {
+	s, _, _ := setup(t, func(c *auth.ServiceConfig) { c.Default = auth.DenyAll })
+	alice := addUser(t, s, "alice", auth.RoleUser)
+	id, _ := authenticate(s, basic("alice", pw))
+	if err := s.Authorize(ctx, id, "alerts", auth.Read); err == nil {
+		t.Fatal("a user on a closed server may read")
+	}
+
+	if err := s.SetRole(ctx, "alice", auth.RoleAdmin); err != nil {
+		t.Fatal(err)
+	}
+	id, _ = authenticate(s, basic("alice", pw))
+	if id.User.Role != auth.RoleAdmin || s.Authorize(ctx, id, "alerts", auth.Write) != nil {
+		t.Errorf("as an administrator: %+v", id.User)
+	}
+	if err := s.SetRole(ctx, "alice", auth.RoleUser); err != nil {
+		t.Fatal(err)
+	}
+	if u, _ := s.FindUser(ctx, "alice"); u.Role != auth.RoleUser || u.ID != alice.ID {
+		t.Errorf("back as a user: %+v", u)
+	}
+
+	var input *auth.InputError
+	if err := s.SetRole(ctx, "alice", auth.Role("root")); !errors.As(err, &input) {
+		t.Errorf("a role that does not exist: %v", err)
+	}
+}
+
+func TestBadInputIsReportedAsInput(t *testing.T) {
+	s, _, _ := setup(t)
+	addUser(t, s, "alice", auth.RoleUser)
+	var input *auth.InputError
+	for what, err := range map[string]error{
+		"a bad name":     func() error { _, e := s.CreateUser(ctx, "Bad Name", pw, auth.RoleUser); return e }(),
+		"a short pass":   func() error { _, e := s.CreateUser(ctx, "bob", "short", auth.RoleUser); return e }(),
+		"a bad role":     func() error { _, e := s.CreateUser(ctx, "bob", pw, auth.Role("king")); return e }(),
+		"a new password": s.SetPassword(ctx, "alice", "short"),
+		"a bad pattern":  s.Grant(ctx, "alice", "bad pattern!", auth.ReadOnly),
+		"a bad access":   s.Grant(ctx, "alice", "alerts", auth.Access("sometimes")),
+	} {
+		if !errors.As(err, &input) {
+			t.Errorf("%s: %v is not input", what, err)
+		}
+	}
+	if _, err := s.CreateUser(ctx, "alice", pw, auth.RoleUser); !errors.Is(err, auth.ErrExists) {
+		t.Errorf("a name taken: %v", err)
+	}
+}

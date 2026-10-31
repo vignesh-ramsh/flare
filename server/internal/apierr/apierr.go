@@ -17,6 +17,7 @@ const (
 	AlreadySubscribed  = 40901 // the WebSocket is already subscribed to this topic
 	TokenLimit         = 40902 // the user already has as many tokens as are allowed
 	AlreadyExists      = 40903 // something with this name is already there
+	Conflict           = 40904 // the change would break something that must stay true, such as leaving no one able to administer the server
 	TooLarge           = 41301 // the message is over the size limit
 	TooMany            = 42901 // a limit on the number of subscriptions was reached
 	Throttled          = 42902 // too many failed login attempts from this address

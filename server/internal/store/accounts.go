@@ -56,22 +56,23 @@ func (s *SQLite) CreateUser(ctx context.Context, u auth.User, passwordHash strin
 
 func scanUser(row interface{ Scan(...any) error }) (auth.User, string, error) {
 	var (
-		u       auth.User
-		role    string
-		created int64
-		hash    string
+		u        auth.User
+		role     string
+		created  int64
+		hash     string
+		disabled int
 	)
-	if err := row.Scan(&u.ID, &u.Name, &hash, &role, &created); err != nil {
+	if err := row.Scan(&u.ID, &u.Name, &hash, &role, &created, &disabled); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return auth.User{}, "", auth.ErrNotFound
 		}
 		return auth.User{}, "", fmt.Errorf("read user: %w", err)
 	}
-	u.Role, u.CreatedAt = auth.Role(role), time.Unix(created, 0)
+	u.Role, u.CreatedAt, u.Disabled = auth.Role(role), time.Unix(created, 0), disabled != 0
 	return u, hash, nil
 }
 
-const userColumns = `id, name, password_hash, role, created_at`
+const userColumns = `id, name, password_hash, role, created_at, disabled`
 
 func (s *SQLite) UserByName(ctx context.Context, name string) (auth.User, string, error) {
 	return scanUser(s.db.QueryRowContext(ctx, `SELECT `+userColumns+` FROM users WHERE name = ?`, name))
@@ -101,6 +102,20 @@ func (s *SQLite) ListUsers(ctx context.Context) ([]auth.User, error) {
 func (s *SQLite) SetPassword(ctx context.Context, userID, passwordHash string) error {
 	res, err := s.db.ExecContext(ctx, `UPDATE users SET password_hash = ? WHERE id = ?`, passwordHash, userID)
 	return expectOne(res, err, "set password")
+}
+
+func (s *SQLite) SetRole(ctx context.Context, userID string, role auth.Role) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE users SET role = ? WHERE id = ?`, string(role), userID)
+	return expectOne(res, err, "set role")
+}
+
+func (s *SQLite) SetDisabled(ctx context.Context, userID string, disabled bool) error {
+	flag := 0
+	if disabled {
+		flag = 1
+	}
+	res, err := s.db.ExecContext(ctx, `UPDATE users SET disabled = ? WHERE id = ?`, flag, userID)
+	return expectOne(res, err, "set disabled")
 }
 
 func (s *SQLite) DeleteUser(ctx context.Context, userID string) error {
@@ -154,18 +169,19 @@ func scanToken(row interface{ Scan(...any) error }, extra ...any) (auth.Token, e
 
 func (s *SQLite) TokenByHash(ctx context.Context, tokenHash string) (auth.Token, auth.User, error) {
 	var (
-		u       auth.User
-		role    string
-		created int64
+		u        auth.User
+		role     string
+		created  int64
+		disabled int
 	)
 	t, err := scanToken(s.db.QueryRowContext(ctx,
-		`SELECT `+tokenColumns+`, u.name, u.role, u.created_at
+		`SELECT `+tokenColumns+`, u.name, u.role, u.created_at, u.disabled
 		   FROM tokens t JOIN users u ON u.id = t.user_id
-		  WHERE t.token_hash = ?`, tokenHash), &u.Name, &role, &created)
+		  WHERE t.token_hash = ?`, tokenHash), &u.Name, &role, &created, &disabled)
 	if err != nil {
 		return auth.Token{}, auth.User{}, err
 	}
-	u.ID, u.Role, u.CreatedAt = t.UserID, auth.Role(role), time.Unix(created, 0)
+	u.ID, u.Role, u.CreatedAt, u.Disabled = t.UserID, auth.Role(role), time.Unix(created, 0), disabled != 0
 	return t, u, nil
 }
 

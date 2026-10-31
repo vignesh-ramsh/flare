@@ -25,6 +25,10 @@ type Accounts interface {
 	UserByID(ctx context.Context, id string) (User, string, error)
 	ListUsers(ctx context.Context) ([]User, error)
 	SetPassword(ctx context.Context, userID, passwordHash string) error
+	// SetRole changes what kind of user someone is, or returns ErrNotFound.
+	SetRole(ctx context.Context, userID string, role Role) error
+	// SetDisabled disables or enables a user, or returns ErrNotFound.
+	SetDisabled(ctx context.Context, userID string, disabled bool) error
 	// DeleteUser removes the user along with their tokens and access rules.
 	DeleteUser(ctx context.Context, userID string) error
 

@@ -196,6 +196,8 @@ func (s *Service) byPassword(ctx context.Context, name, password string) (Identi
 		return Identity{}, err
 	case !ok:
 		return Identity{}, ErrBadCredentials
+	case user.Disabled:
+		return Identity{}, ErrBadCredentials // the same answer as a wrong password
 	}
 	return Identity{User: &user, cred: credential{kind: byPassword, secret: hash}}, nil
 }
@@ -213,6 +215,9 @@ func (s *Service) byToken(ctx context.Context, secret string) (Identity, error) 
 		return Identity{}, err
 	}
 	if token.ExpiresAt != nil && !token.ExpiresAt.After(s.cfg.Now()) {
+		return Identity{}, ErrBadCredentials
+	}
+	if user.Disabled {
 		return Identity{}, ErrBadCredentials
 	}
 	s.touch(ctx, token.ID)
@@ -240,8 +245,8 @@ func (s *Service) Revalidate(ctx context.Context, id Identity) (Identity, error)
 	switch id.cred.kind {
 	case byPassword:
 		user, hash, err := s.acc.UserByID(ctx, id.User.ID)
-		if errors.Is(err, ErrNotFound) || (err == nil && hash != id.cred.secret) {
-			return Identity{}, ErrBadCredentials // deleted, or the password was changed
+		if errors.Is(err, ErrNotFound) || (err == nil && (hash != id.cred.secret || user.Disabled)) {
+			return Identity{}, ErrBadCredentials // deleted, disabled, or the password was changed
 		}
 		if err != nil {
 			return Identity{}, err
@@ -256,6 +261,9 @@ func (s *Service) Revalidate(ctx context.Context, id Identity) (Identity, error)
 			return Identity{}, err
 		}
 		if token.ExpiresAt != nil && !token.ExpiresAt.After(s.cfg.Now()) {
+			return Identity{}, ErrBadCredentials
+		}
+		if user.Disabled {
 			return Identity{}, ErrBadCredentials
 		}
 		return Identity{User: &user, cred: id.cred}, nil
@@ -296,6 +304,9 @@ func (s *Service) MayAs(ctx context.Context, userID, topic string, p Permission)
 		if err != nil {
 			return false, err
 		}
+		if user.Disabled {
+			return false, nil // a disabled user is woken for nothing
+		}
 		if user.Role == RoleAdmin {
 			return true, nil
 		}
@@ -323,13 +334,13 @@ func (s *Service) Rules(ctx context.Context, id Identity) ([]Rule, error) {
 // CreateUser adds a user, checking the name and password against the rules.
 func (s *Service) CreateUser(ctx context.Context, name, password string, role Role) (User, error) {
 	if err := ValidUsername(name); err != nil {
-		return User{}, err
+		return User{}, &InputError{err.Error()}
 	}
 	if err := ValidPassword(password); err != nil {
-		return User{}, err
+		return User{}, &InputError{err.Error()}
 	}
 	if _, err := ParseRole(string(role)); err != nil {
-		return User{}, err
+		return User{}, &InputError{err.Error()}
 	}
 	hash, err := s.hasher.Hash(ctx, password)
 	if err != nil {
@@ -362,13 +373,37 @@ func (s *Service) SetPassword(ctx context.Context, name, password string) error 
 		return err
 	}
 	if err := ValidPassword(password); err != nil {
-		return err
+		return &InputError{err.Error()}
 	}
 	hash, err := s.hasher.Hash(ctx, password)
 	if err != nil {
 		return err
 	}
 	return s.acc.SetPassword(ctx, u.ID, hash)
+}
+
+// SetRole makes a user an administrator or an ordinary user. Open connections notice within
+// the interval at which they re-check.
+func (s *Service) SetRole(ctx context.Context, name string, role Role) error {
+	if _, err := ParseRole(string(role)); err != nil {
+		return &InputError{err.Error()}
+	}
+	u, err := s.user(ctx, name)
+	if err != nil {
+		return err
+	}
+	return s.acc.SetRole(ctx, u.ID, role)
+}
+
+// SetDisabled disables a user, or enables them again. A disabled user cannot log in, their
+// tokens stop working and their open connections end within the interval at which they
+// re-check; nothing of theirs is deleted.
+func (s *Service) SetDisabled(ctx context.Context, name string, disabled bool) error {
+	u, err := s.user(ctx, name)
+	if err != nil {
+		return err
+	}
+	return s.acc.SetDisabled(ctx, u.ID, disabled)
 }
 
 // DeleteUser removes a user, with their tokens and access rules.
@@ -434,10 +469,10 @@ func (s *Service) DeleteToken(ctx context.Context, tokenID, ownerID string) erro
 // a user name, or Everyone.
 func (s *Service) Grant(ctx context.Context, who, pattern string, access Access) error {
 	if !ValidPattern(pattern) {
-		return fmt.Errorf("%q is not a valid pattern: use a topic name, with * for any characters", pattern)
+		return &InputError{fmt.Sprintf("%q is not a valid pattern: use a topic name, with * for any characters", pattern)}
 	}
 	if _, err := ParseAccess(string(access)); err != nil {
-		return fmt.Errorf("access %v", err)
+		return &InputError{fmt.Sprintf("access %v", err)}
 	}
 	userID, err := s.ruleOwner(ctx, who)
 	if err != nil {

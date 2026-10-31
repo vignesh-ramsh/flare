@@ -118,4 +118,10 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   server starts, so those say a restart is needed and show when what is running differs from what is set.
   A stored choice that no longer applies is left out with a warning instead of stopping the server. Where the
   server listens, its database, trusted proxies and push credentials stay in the file.
+- Managing users from the Admin API: list, create, and change users' roles and passwords, disable and enable
+  them, delete them (`/v1/admin/users`), list and revoke a user's tokens, and list, grant and remove access
+  rules (`/v1/admin/access`). A disabled user cannot log in, their tokens stop working and what they have open
+  ends within 30 seconds, but nothing of theirs is deleted; enabling them restores everything. An administrator
+  cannot demote, disable or delete themselves, so they cannot lock themselves out. `flare user role`, `disable`
+  and `enable` do the same from the command line, and `flare user list` shows who is disabled.
 

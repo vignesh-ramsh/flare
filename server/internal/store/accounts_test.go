@@ -350,3 +350,66 @@ func TestConcurrentAccountChanges(t *testing.T) {
 		t.Errorf("%d rules, want 5 (one per pattern)", len(rules))
 	}
 }
+
+func TestUsersCanBeDisabledAndEnabled(t *testing.T) {
+	s, err := OpenSQLite(ctx, filepath.Join(t.TempDir(), "flare.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	u := addUser(t, s, "u1", "alice")
+	if got, _, _ := s.UserByID(ctx, u.ID); got.Disabled {
+		t.Fatal("a new user is disabled")
+	}
+	if err := s.SetDisabled(ctx, u.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	for name, get := range map[string]func() (auth.User, error){
+		"by name": func() (auth.User, error) { got, _, err := s.UserByName(ctx, "alice"); return got, err },
+		"by id":   func() (auth.User, error) { got, _, err := s.UserByID(ctx, u.ID); return got, err },
+		"listed": func() (auth.User, error) {
+			all, err := s.ListUsers(ctx)
+			return all[0], err
+		},
+	} {
+		if got, err := get(); err != nil || !got.Disabled {
+			t.Errorf("%s: %+v %v", name, got, err)
+		}
+	}
+
+	// The owner of a token is read with their state too.
+	if err := s.CreateToken(ctx, auth.Token{ID: "t1", UserID: u.ID, CreatedAt: time.Unix(1_800_000_000, 0)}, "hash"); err != nil {
+		t.Fatal(err)
+	}
+	if _, owner, err := s.TokenByHash(ctx, "hash"); err != nil || !owner.Disabled {
+		t.Errorf("token owner: %+v %v", owner, err)
+	}
+
+	if err := s.SetDisabled(ctx, u.ID, false); err != nil {
+		t.Fatal(err)
+	}
+	if got, _, _ := s.UserByID(ctx, u.ID); got.Disabled {
+		t.Error("still disabled")
+	}
+	if err := s.SetDisabled(ctx, "nobody", true); !errors.Is(err, auth.ErrNotFound) {
+		t.Errorf("a user that is not there: %v", err)
+	}
+}
+
+func TestARoleCanChange(t *testing.T) {
+	s, err := OpenSQLite(ctx, filepath.Join(t.TempDir(), "flare.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	u := addUser(t, s, "u1", "alice")
+	if err := s.SetRole(ctx, u.ID, auth.RoleAdmin); err != nil {
+		t.Fatal(err)
+	}
+	if got, _, _ := s.UserByID(ctx, u.ID); got.Role != auth.RoleAdmin {
+		t.Errorf("role = %v", got.Role)
+	}
+	if err := s.SetRole(ctx, "nobody", auth.RoleAdmin); !errors.Is(err, auth.ErrNotFound) {
+		t.Errorf("a user that is not there: %v", err)
+	}
+}
