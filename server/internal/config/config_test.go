@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -31,7 +32,7 @@ func TestDefaultsAreValid(t *testing.T) {
 
 func TestLoadWithoutAFileGivesDefaults(t *testing.T) {
 	c, err := Load("")
-	if err != nil || c != Default() {
+	if err != nil || !reflect.DeepEqual(c, Default()) {
 		t.Errorf("Load(\"\") = %+v, %v", c, err)
 	}
 }
@@ -54,7 +55,7 @@ branding:
 	want.CacheDuration = 12 * time.Hour
 	want.Auth.DefaultAccess = "read-only"
 	want.Branding.Name = "Acme Alerts"
-	if c != want {
+	if !reflect.DeepEqual(c, want) {
 		t.Errorf("got  %+v\nwant %+v", c, want)
 	}
 	if err := c.Validate(); err != nil {
@@ -68,7 +69,7 @@ branding:
 func TestAnEmptyFileMeansDefaults(t *testing.T) {
 	for _, content := range []string{"", "\n", "# only comments\n"} {
 		c, err := Load(write(t, content))
-		if err != nil || c != Default() {
+		if err != nil || !reflect.DeepEqual(c, Default()) {
 			t.Errorf("Load(%q) = %+v, %v", content, c, err)
 		}
 	}
@@ -117,6 +118,7 @@ func TestEnvironmentOverridesTheFile(t *testing.T) {
 		"FLARE_BRANDING_NAME":           "Env Name",
 		"FLARE_BRANDING_PRIMARY_COLOR":  "#112233",
 		"FLARE_BRANDING_APP_URL_SCHEME": "envapp",
+		"FLARE_TRUSTED_PROXIES":         "10.0.0.0/8, 192.168.1.1",
 		"FLARE_UNRELATED":               "ignored",
 	}))
 	if err != nil {
@@ -124,8 +126,12 @@ func TestEnvironmentOverridesTheFile(t *testing.T) {
 	}
 	if c.Listen != "127.0.0.1:2222" || c.Database != "sqlite:///data/f.db" || c.CacheDuration != 36*time.Hour ||
 		c.MessageSizeLimit != 1024 || c.Auth.DefaultAccess != "write-only" || c.Branding.Name != "Env Name" ||
-		c.Branding.PrimaryColor != "#112233" || c.Branding.AppURLScheme != "envapp" {
+		c.Branding.PrimaryColor != "#112233" || c.Branding.AppURLScheme != "envapp" ||
+		!reflect.DeepEqual(c.TrustedProxies, []string{"10.0.0.0/8", " 192.168.1.1"}) {
 		t.Errorf("environment not applied: %+v", c)
+	}
+	if err := c.Validate(); err != nil {
+		t.Errorf("the spaces around a listed proxy should not matter: %v", err)
 	}
 	if c.BaseURL != "https://from-file.example" {
 		t.Errorf("a setting with no environment variable was changed: %q", c.BaseURL)
@@ -134,7 +140,7 @@ func TestEnvironmentOverridesTheFile(t *testing.T) {
 
 func TestUnsetEnvironmentChangesNothing(t *testing.T) {
 	c := Default()
-	if err := c.ApplyEnv(env(nil)); err != nil || c != Default() {
+	if err := c.ApplyEnv(env(nil)); err != nil || !reflect.DeepEqual(c, Default()) {
 		t.Errorf("got %+v, %v", c, err)
 	}
 }
@@ -181,6 +187,12 @@ func TestValidate(t *testing.T) {
 		{"message limit of zero", func(c *Config) { c.MessageSizeLimit = 0 }, "message-size-limit"},
 		{"unknown access", func(c *Config) { c.Auth.DefaultAccess = "open" }, "auth.default-access"},
 		{"empty access", func(c *Config) { c.Auth.DefaultAccess = "" }, "auth.default-access"},
+		{"no trusted proxies", func(c *Config) { c.TrustedProxies = nil }, ""},
+		{"a proxy address", func(c *Config) { c.TrustedProxies = []string{"10.0.0.5", "::1"} }, ""},
+		{"a proxy range", func(c *Config) { c.TrustedProxies = []string{"172.16.0.0/12", "fd00::/8"} }, ""},
+		{"a proxy by name", func(c *Config) { c.TrustedProxies = []string{"caddy"} }, "trusted-proxies"},
+		{"a bad proxy range", func(c *Config) { c.TrustedProxies = []string{"10.0.0.0/33"} }, "trusted-proxies"},
+		{"an empty proxy", func(c *Config) { c.TrustedProxies = []string{"10.0.0.1", ""} }, "trusted-proxies"},
 		{"empty name", func(c *Config) { c.Branding.Name = "" }, "branding.name"},
 		{"name with a newline", func(c *Config) { c.Branding.Name = "a\nb" }, "branding.name"},
 		{"unicode name", func(c *Config) { c.Branding.Name = "Café Ünï ✓" }, ""},
@@ -250,7 +262,35 @@ func TestTheSampleConfigurationIsValid(t *testing.T) {
 	d := Default()
 	d.BaseURL = "https://flare.example.com"
 	d.Database = "sqlite:///var/lib/flare/flare.db"
-	if c != d {
-		t.Errorf("the sample states values that differ from the defaults it claims to show:\n got  %+v\n want %+v", c, d)
+	d.TrustedProxies = []string{"172.16.0.0/12", "192.168.0.0/16"} // for Docker Compose
+	d.Auth.DefaultAccess = "deny-all"                              // the sample is for a server on the internet
+	if !reflect.DeepEqual(c, d) {
+		t.Errorf("the sample states values that differ from the defaults it claims to show, apart from the ones this test lists:\n got  %+v\n want %+v", c, d)
+	}
+}
+
+func TestTrustedProxiesFromTheFile(t *testing.T) {
+	c, err := Load(write(t, "trusted-proxies:\n  - 172.16.0.0/12\n  - 10.0.0.5\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(c.TrustedProxies, []string{"172.16.0.0/12", "10.0.0.5"}) {
+		t.Errorf("TrustedProxies = %q", c.TrustedProxies)
+	}
+	if _, err := Load(write(t, "trusted-proxies: 10.0.0.0/8\n")); err == nil {
+		t.Error("a single string where a list is expected should be an error")
+	}
+}
+
+func TestTheEnvironmentReplacesTheListOfTrustedProxies(t *testing.T) {
+	c, err := Load(write(t, "trusted-proxies: [10.0.0.5]\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.ApplyEnv(env(map[string]string{"FLARE_TRUSTED_PROXIES": "192.168.0.0/16"})); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(c.TrustedProxies, []string{"192.168.0.0/16"}) {
+		t.Errorf("TrustedProxies = %q, want the environment's list alone", c.TrustedProxies)
 	}
 }

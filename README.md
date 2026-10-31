@@ -9,8 +9,9 @@ curl -d "Backup finished" https://flare.example.com/backups
 ```
 
 - **Self-host it:** one static binary, SQLite by default, Docker Compose in a few minutes. See
-  [server/README.md](server/README.md). It is early: there are no accounts yet, so don't expose it
-  unprotected.
+  [server/README.md](server/README.md). It is early: it is open by default, so turn on accounts
+  (`auth.default-access: deny-all`) before exposing it, and expect rate limits and push notifications
+  to come later.
 - **Rebrand it:** set your own app name, logo, colours and identifiers in one brand folder and rebuild
   the apps. No source changes needed. See [brand/README.md](brand/README.md).
 

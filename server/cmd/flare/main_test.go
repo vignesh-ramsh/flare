@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/vignesh-ramsh/flare/server/internal/auth"
 	"github.com/vignesh-ramsh/flare/server/internal/config"
 	"github.com/vignesh-ramsh/flare/server/internal/message"
 	"github.com/vignesh-ramsh/flare/server/internal/server"
@@ -32,7 +33,8 @@ func run(t *testing.T, ctx context.Context, stdin string, env map[string]string,
 	var out, errOut bytes.Buffer
 	root := newRootCmd(cli{
 		stdin: strings.NewReader(stdin), stdout: &out, stderr: &errOut,
-		getenv: func(k string) string { return env[k] },
+		getenv:     func(k string) string { return env[k] },
+		hashParams: auth.Params{Time: 1, MemoryKiB: 64, Threads: 1}, // cheap, for tests
 	})
 	root.SetArgs(args)
 	err := root.ExecuteContext(ctx)
@@ -41,6 +43,13 @@ func run(t *testing.T, ctx context.Context, stdin string, env map[string]string,
 
 // realServer starts the actual server behind an httptest server.
 func realServer(t *testing.T, edit ...func(*config.Config)) string {
+	url, _ := serverWithDatabase(t, edit...)
+	return url
+}
+
+// serverWithDatabase is realServer that also says where its database is, so that
+// the commands which manage users can be pointed at the same one.
+func serverWithDatabase(t *testing.T, edit ...func(*config.Config)) (url, database string) {
 	t.Helper()
 	cfg := config.Default()
 	cfg.Database = "sqlite://" + filepath.Join(t.TempDir(), "flare.db")
@@ -56,7 +65,7 @@ func realServer(t *testing.T, edit ...func(*config.Config)) string {
 	}
 	srv := httptest.NewServer(s.Handler())
 	t.Cleanup(func() { srv.Close(); s.Close() })
-	return srv.URL
+	return srv.URL, cfg.Database
 }
 
 func decode(t *testing.T, line string) message.Message {
@@ -130,8 +139,8 @@ func TestPublishErrors(t *testing.T) {
 	url := realServer(t, func(c *config.Config) { c.Auth.DefaultAccess = "read-only"; c.MessageSizeLimit = 10 })
 	ctx := context.Background()
 
-	if r := run(t, ctx, "", nil, "publish", "-s", url, "t", "x"); r.err == nil || !strings.Contains(r.err.Error(), "does not allow write access") {
-		t.Errorf("err = %v, want the server's reason", r.err)
+	if r := run(t, ctx, "", nil, "publish", "-s", url, "t", "x"); r.err == nil || !strings.Contains(r.err.Error(), "log in to write") {
+		t.Errorf("err = %v, want the server's reason: an anonymous visitor is told to log in", r.err)
 	}
 	open := realServer(t, func(c *config.Config) { c.MessageSizeLimit = 10 })
 	if r := run(t, ctx, "", nil, "publish", "-s", open, "t", "this message is much too long"); r.err == nil || !strings.Contains(r.err.Error(), "limit of 10 bytes") {

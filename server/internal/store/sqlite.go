@@ -36,11 +36,13 @@ func OpenSQLite(ctx context.Context, path string) (*SQLite, error) {
 	// journal_mode=WAL lets readers run while a write happens. synchronous=FULL
 	// makes each commit durable before Insert returns, so a message the server
 	// acknowledged survives a crash or power loss. busy_timeout makes a writer
-	// wait for another instead of failing.
+	// wait for another instead of failing. foreign_keys makes deleting a user
+	// delete their tokens and access rules, which SQLite does only on request.
 	query := strings.Join([]string{
 		"_pragma=journal_mode(WAL)",
 		"_pragma=synchronous(FULL)",
 		"_pragma=busy_timeout(5000)",
+		"_pragma=foreign_keys(1)",
 	}, "&")
 	db, err := sql.Open("sqlite", "file:"+escapePath(path)+"?"+query)
 	if err != nil {

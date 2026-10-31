@@ -15,7 +15,7 @@ const APIVersion = 1
 
 // features lists what this server can do, so that apps can check for a feature
 // instead of comparing version numbers.
-var features = []string{"publish", "poll", "sse", "websocket"}
+var features = []string{"publish", "poll", "sse", "websocket", "accounts"}
 
 // index is GET /: a hint for someone who opened the server in a browser.
 func (a *API) index(w http.ResponseWriter, r *http.Request) {

@@ -44,7 +44,11 @@ func New(ctx context.Context, cfg config.Config, log *slog.Logger) (*Server, err
 	if err != nil {
 		return nil, err
 	}
-	access, err := auth.ParseDefaultAccess(cfg.Auth.DefaultAccess)
+	access, err := auth.ParseAccess(cfg.Auth.DefaultAccess)
+	if err != nil {
+		return nil, err
+	}
+	proxies, err := auth.ParseProxies(cfg.TrustedProxies)
 	if err != nil {
 		return nil, err
 	}
@@ -59,7 +63,8 @@ func New(ctx context.Context, cfg config.Config, log *slog.Logger) (*Server, err
 	return &Server{
 		cfg: cfg, log: log, store: st, broker: br, hub: hub,
 		api: api.New(api.Deps{
-			Hub: hub, Auth: auth.NewPolicy(access), Config: cfg, Log: log, Shutdown: shutdown,
+			Hub: hub, Config: cfg, Log: log, Shutdown: shutdown,
+			Auth: auth.NewService(st, auth.ServiceConfig{Default: access, Proxies: proxies}),
 		}),
 		shutdown: shutdown, endStreams: endStreams,
 		purgeEvery: time.Minute,
@@ -168,8 +173,8 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 		"cache", cfg.CacheDuration.String(), "default_access", cfg.Auth.DefaultAccess)
 	if cfg.Open() && !loopback(cfg.Listen) {
 		log.Warn("this server is open: anyone who can reach it can publish and subscribe. " +
-			"Accounts are not supported yet, so put it behind a firewall or reverse proxy that restricts access, " +
-			"or listen on 127.0.0.1 only")
+			"To restrict it, set auth.default-access to deny-all, create users with `flare user add`, " +
+			"and grant them topics with `flare access grant`; or listen on 127.0.0.1 only")
 	}
 	return s.Serve(ctx, ln)
 }

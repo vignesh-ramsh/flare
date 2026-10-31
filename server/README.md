@@ -4,10 +4,11 @@ The Flare server and its command-line client: one static binary, `flare`. Design
 reasoning: [docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md). The HTTP contract:
 [api/openapi.yaml](../api/openapi.yaml).
 
-> **Status: early.** Publishing and subscribing work, with the delivery guarantee described
-> below. There are **no accounts yet**, so by default anyone who can reach the server can
-> publish and read every topic. See [What is and isn't there yet](#what-is-and-isnt-there-yet)
-> before putting it on the internet.
+> **Status: early.** Publishing, subscribing and accounts work, with the delivery guarantee
+> described below. Out of the box the server is open: anyone who can reach it can publish and
+> read every topic. Set `auth.default-access: deny-all` and create users (see
+> [Accounts and access](#accounts-and-access)) before putting it on the internet, and read
+> [What is and isn't there yet](#what-is-and-isnt-there-yet).
 
 ## Try it
 
@@ -90,6 +91,62 @@ publishing assigns the ID, stores the message and hands it to subscribers in one
 order, storage order and delivery order are the same. The tests publish from many goroutines
 while subscribers connect at random moments, and check that nothing is missed or repeated.
 
+## Accounts and access
+
+By default the server is open, which is convenient to try it out. To restrict it, set
+`auth.default-access: deny-all` (in the config file, or `FLARE_AUTH_DEFAULT_ACCESS`), then say who may
+do what. These commands work on the database directly, so run them on the server's machine (in Docker,
+`docker compose -f deploy/docker-compose.yml exec flare flare ...`) and they take effect at once on a
+running server:
+
+```bash
+flare user add --admin alice             # asks for a password; an admin may do everything
+flare user add bob
+flare access grant bob 'alerts-*' read-write
+flare access grant everyone status read-only      # no login needed to read "status"
+flare token add --label backup-server bob         # prints a token, once, for a script
+flare access list
+```
+
+Passwords are read from the terminal, or from standard input if it is piped, never from the command
+line. Rules say what a user (or `everyone`) may do on the topics matching a pattern, where `*` stands
+for any characters: `read-write`, `read-only`, `write-only` or `deny-all`. Of the rules that match a
+topic, the most specific wins: an exact name beats a pattern, a longer pattern beats a shorter one, a
+user's own rule beats the one for `everyone`, and at equal specificity a `deny-all` beats an allow.
+Where no rule matches, `auth.default-access` applies. Rules work in both directions: under a
+`read-write` default they close off some topics, under a `deny-all` default they open some.
+
+Using it:
+
+```bash
+flare login -s https://flare.example.com alice     # asks for the password; prints a token
+export FLARE_TOKEN=flr_...                         # or --token on publish and subscribe
+flare publish -s https://flare.example.com alerts-db "Disk almost full"
+
+curl -H "Authorization: Bearer $FLARE_TOKEN" -d "Disk almost full" https://flare.example.com/alerts-db
+curl -u alice:password -d "hello" https://flare.example.com/alerts-db     # fine for curl; apps use tokens
+```
+
+- **Tokens** (`flr_` and 43 characters) can be revoked one at a time (`flare token delete <id>`, or
+  `DELETE /v1/account/tokens/{id}`) and may expire (`--expires 30d`). Only a hash is stored, so a token
+  can't be shown again. A token can't be used to create more tokens: that needs the password, so a
+  leaked token can be revoked for good.
+- **A refusal tells you what to do.** Not logged in: `401`, so a client knows to ask for a login.
+  Logged in but not allowed: `403`. Credentials that are wrong are refused as such, never quietly
+  treated as an anonymous visitor's.
+- **Revoking cuts off open connections.** A deleted token, a deleted user, a changed password (for
+  connections that logged in with it) or a rule that takes away read access ends the streams and
+  WebSockets that depended on it within 30 seconds. Tokens keep working after a password change; revoke
+  them separately.
+- **Guessing passwords is slow.** Checking a password takes memory (Argon2id), so the server does at
+  most four at a time, and a client that fails to log in 10 times in 10 minutes is told to wait (`429`).
+  Behind a reverse proxy, list it in `trusted-proxies` so that clients are told apart; otherwise
+  every client looks like the proxy.
+- **Browsers and WebSockets.** A WebSocket can't carry a header from a browser, so the first message
+  on it may be `{"op":"auth","token":"flr_..."}`. Tokens never go in URLs.
+
+The full contract is in [api/openapi.yaml](../api/openapi.yaml).
+
 ## Configuration
 
 Settings come from built-in defaults, then a YAML file (`--config` or `FLARE_CONFIG`), then
@@ -104,7 +161,8 @@ yet, is an **error**, so a typo can never leave something silently unconfigured.
 | `database` | `sqlite://flare.db` | `sqlite://<path>` (`sqlite:///var/lib/flare/flare.db` for an absolute path) |
 | `cache-duration` | `24h` | How long messages are kept (1m to 8760h) |
 | `message-size-limit` | `4096` | Largest message, in bytes |
-| `auth.default-access` | `read-write` | What anyone may do: `read-write`, `read-only`, `write-only`, `deny-all` |
+| `auth.default-access` | `read-write` | What a visitor who is not logged in may do, and what a user may do where no rule applies: `read-write`, `read-only`, `write-only`, `deny-all` |
+| `trusted-proxies` | none | Reverse proxies (addresses or CIDR ranges) believed when they say who a client is in `X-Forwarded-For`; used to count failed logins per client |
 | `branding.name`, `.primary-color`, `.app-url-scheme` | Flare, `#F97316`, `flare` | How the server presents itself to apps |
 
 Logs are JSON on stderr (`--log-format text` for people). They record each request's route
@@ -126,19 +184,19 @@ finish, and exits. Subscribers reconnect and catch up.
 
 | | |
 |---|---|
-| **Works** | Publishing (headers and JSON); subscribing by JSON stream, SSE, WebSocket and poll; catching up with `since`; SQLite storage that survives restarts; expiry; a server-wide access policy; health checks; `/v1/config`; graceful shutdown; the `flare publish` and `flare subscribe` client |
-| **Not yet** | Accounts, access tokens and per-topic rules. Rate limits and abuse protection. Push notifications through FCM, APNs, UnifiedPush and Web Push, and the push relay. Attachments, delayed delivery, action buttons, Markdown. Retracting a message. End-to-end encryption. PostgreSQL and NATS (cluster mode). Prometheus metrics. The web app. Built-in TLS |
+| **Works** | Publishing (headers and JSON); subscribing by JSON stream, SSE, WebSocket and poll; catching up with `since`; SQLite storage that survives restarts; expiry; users, passwords, access tokens and per-topic access rules, with the revocation of open connections and a limit on failed logins; health checks; `/v1/config`; graceful shutdown; the `flare publish`, `flare subscribe`, `flare login`, `flare user`, `flare token` and `flare access` commands |
+| **Not yet** | Rate limits on publishing and other abuse protection (the failed-login limit is the only one). Sign-up by users themselves, changing one's own password, reserving topic names. Push notifications through FCM, APNs, UnifiedPush and Web Push, and the push relay. Attachments, delayed delivery, action buttons, Markdown. Retracting a message. End-to-end encryption. PostgreSQL and NATS (cluster mode). Prometheus metrics. The web app. Built-in TLS |
 
-Until accounts and rate limits exist, **don't expose the server to the internet unprotected**.
-Listen on `127.0.0.1`, keep it on a private network, or put it behind a proxy that
-restricts who can connect. The server warns at start-up when it is open and reachable from
-outside. For the same reason, anyone can open a WebSocket from a non-browser client;
-browsers may only connect from the server's own origin.
+Until rate limits exist, **don't expose an open server to the internet**: set
+`auth.default-access: deny-all`, or listen on `127.0.0.1`, or keep it on a private network. Even with
+accounts, anyone who can log in can publish as fast as the server lets them. The server warns at
+start-up when it is open and reachable from outside. Browsers may only open a WebSocket from the
+server's own origin; other clients can open one from anywhere.
 
 ## Code layout
 
 ```
-cmd/flare/          the command: serve, publish, subscribe
+cmd/flare/          the command: serve, publish, subscribe, login, user, token, access
 internal/
   api/              HTTP routes, publish and subscribe handlers, middleware
   realtime/         the hub (storing and delivering) and the wire formats: JSON, SSE, WebSocket
@@ -146,7 +204,7 @@ internal/
   store/            message storage (SQLite; PostgreSQL later)
   message/          what a message is, and the rules for what may be published
   id/               time-ordered message IDs (UUIDv7)
-  auth/             who may read and write which topic
+  auth/             users, passwords, tokens, and who may read and write which topic
   config/           settings: file, environment, validation
   client/           publish and follow, with reconnect and resume
   server/           wiring, background purge, graceful shutdown

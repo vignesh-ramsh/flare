@@ -5,6 +5,8 @@ import (
 	"runtime/debug"
 
 	"github.com/spf13/cobra"
+
+	"github.com/vignesh-ramsh/flare/server/internal/auth"
 )
 
 // version is set at build time: -ldflags "-X main.version=v1.2.3".
@@ -16,6 +18,9 @@ type cli struct {
 	stdin          io.Reader
 	stdout, stderr io.Writer
 	getenv         func(string) string
+	// hashParams are the password hashing costs for commands that set passwords.
+	// Zero means the production settings; tests use cheap ones.
+	hashParams auth.Params
 }
 
 func newRootCmd(c cli) *cobra.Command {
@@ -41,7 +46,8 @@ Anything that can make an HTTP request can publish:
 	root.SetVersionTemplate("flare {{.Version}}\n")
 	root.CompletionOptions.DisableDefaultCmd = true
 
-	root.AddCommand(newServeCmd(c), newPublishCmd(c), newSubscribeCmd(c))
+	root.AddCommand(newServeCmd(c), newPublishCmd(c), newSubscribeCmd(c), newLoginCmd(c),
+		newUserCmd(c), newTokenCmd(c), newAccessCmd(c))
 	return root
 }
 

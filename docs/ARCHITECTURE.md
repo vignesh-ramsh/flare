@@ -402,8 +402,9 @@ server handlers and generated client code.
 | `GET` | `/v1/config` | Public server info: name and logo (runtime branding), API version, feature flags, auth and push modes |
 | `POST` | `/v1/devices` | Register a device: `app_id`, platform, and a push token or relay + handle |
 | `PUT` | `/v1/devices/{id}/subscriptions` | Replace the device's push subscriptions; returns opaque subscription ids |
-| `POST` | `/v1/account`, `/v1/auth/login` | Sign-up / login (optional accounts) |
-| `GET` / `POST` / `DELETE` | `/v1/account/tokens` | Manage access tokens |
+| `POST` | `/v1/auth/login` | Log in with a user name and password (Basic auth); returns an access token |
+| `GET` | `/v1/account` | Who the request is logged in as |
+| `GET` / `DELETE` | `/v1/account/tokens`, `/v1/account/tokens/{id}` | List and revoke one's own access tokens |
 | `PUT` / `DELETE` | `/v1/topics/{topic}` | Reserve a topic, set its ACL |
 | `GET` | `/v1/files/{id}` | Download an attachment |
 | `POST` | `/v1/handles` | Relay mode only: an app registers its push token and gets a handle |
@@ -411,7 +412,7 @@ server handlers and generated client code.
 | `GET` | `/healthz`, `/readyz`, `/metrics` | Health checks and Prometheus metrics |
 
 **Implemented so far:** publishing (`/{topic}`, `/v1/messages`), the three ways to subscribe, `/v1/config`,
-`/healthz` and `/readyz`. The rest arrive with the features they belong to; the authoritative list of what
+`/healthz` and `/readyz`, and accounts: login, access tokens and per-topic access rules (§7). The rest arrive with the features they belong to; the authoritative list of what
 the server serves today is [`api/openapi.yaml`](../api/openapi.yaml), and a test fails if it and the code
 disagree.
 
@@ -438,18 +439,21 @@ publisher wanted held back.
 // server → client
 { "event": "subscribed",   "topic": "backups" }                 // live: nothing from now on is missed
 { "event": "unsubscribed", "topic": "backups" }
-{ "event": "published",    "topic": "chat", "id": "…" }         // the message was stored
+{ "event": "published",    "topic": "chat", "id": "…" }         // the message was stored (a follower of "chat" also gets it back, before or after this)
 { "event": "message", "topic": "backups", "id": "…", "title": "…", "message": "…" }
 { "event": "error", "code": 40301, "error": "forbidden: no read access to topic", "topic": "backups" }
 ```
 
 Errors don't close the connection. Error `50002` means a subscription was dropped because the client fell
 behind; the client subscribes again with `since` set to the last message it received. On server shutdown
-the connection is closed with status 1001 (going away). Until accounts exist, an `auth` frame is answered
-with an error.
+the connection is closed with status 1001 (going away).
 
-Native clients may send the token in the `Authorization` header instead. Tokens never go in URLs,
-because URLs end up in proxy and access logs.
+A socket starts out anonymous and gets the access of an anonymous visitor. To act as a user, send an `auth`
+frame with an access token first, or, for native clients, an `Authorization` header on the upgrade request.
+Tokens never go in URLs, because URLs end up in proxy and access logs. A token that is revoked, expired or
+belongs to a deleted user ends the connection within 30 seconds (status 1008). A change to the rules that
+takes away read access to a topic the socket follows ends that subscription, with a `403` error, in the same
+time; the same checks end open `/json` and `/sse` streams.
 
 ---
 
@@ -458,15 +462,24 @@ because URLs end up in proxy and access logs.
 - **TLS everywhere.** Caddy (automatic Let's Encrypt) in front of single-node installs; built-in
   `autocert` as an option.
 - **Authentication.** Opaque access tokens: `flr_` prefix (so secret scanners can detect leaks) plus 32
-  random bytes, stored as a SHA-256 hash. Passwords are hashed with Argon2id. HTTP Basic auth is
-  accepted for `curl` convenience.
-- **Authorization.** `auth.default-access` (`read-write`, `read-only`, `write-only`, `deny-all`) plus
-  per-user ACL entries on topic patterns (`alerts-*`). Users can reserve topic names they own.
-  Anonymous, public topics are allowed if the operator enables them; the UI must say clearly that an
-  unreserved topic name is effectively a password.
+  random bytes, stored as a SHA-256 hash. Passwords are hashed with Argon2id, at most four at a time so
+  that a flood of logins can't exhaust memory, and a login for a user that doesn't exist costs the same as
+  one that does. HTTP Basic auth is accepted for `curl` convenience. A password is needed only to log in:
+  a token can't be used to create more tokens, so a stolen token can't outlive its revocation. Credentials
+  that are wrong are refused, never treated as an anonymous visitor's. Failed logins are limited to 10 in
+  10 minutes per client (an IPv6 client is its /64), with `429` and `Retry-After`.
+- **Authorization.** `auth.default-access` (`read-write`, `read-only`, `write-only`, `deny-all`) says what an
+  anonymous visitor may do, and what a logged-in user may do where no rule applies. Per-user and
+  per-`everyone` rules on topic patterns (`alerts-*`) refine it. Of the rules that match, the most specific
+  wins (an exact name, then the longer literal prefix, then the user's own over `everyone`), and at equal
+  specificity `deny-all` beats an allow. Administrators may do everything. A refused anonymous visitor gets
+  `401` (so a client knows to ask for a login) and a refused user `403`. Anonymous, public topics are
+  allowed if the operator enables them; the UI must say clearly that an unreserved topic name is
+  effectively a password. Reserving topic names is not implemented yet.
 - **Rate limiting and abuse.** Token buckets per IP and per user: request rate, messages per day,
   attachment bandwidth, open subscriptions. Limits come from a `tiers` table so operators can set
-  different limits per user group. Only trust `X-Forwarded-For` from configured proxies.
+  different limits per user group. Only trust `X-Forwarded-For` from configured proxies
+(`trusted-proxies`, implemented for the login limit; the other limits are not).
 - **Attachments.** Size and total quota limits, expiry, `Content-Disposition: attachment` and
   `X-Content-Type-Options: nosniff`, ideally served from a separate origin to rule out stored XSS.
   The server never fetches external `Attach:` URLs itself (no SSRF); clients do.
@@ -931,9 +944,20 @@ which streams and WebSockets need. Until released images are published, the Comp
 from the source. The image is a static binary on a distroless base, runs as an unprivileged user, and keeps
 its data in the `/var/lib/flare` volume.
 
-Accounts and tokens are not implemented yet (§7), so the commands that will manage them (`flare user add`,
-`flare token add`) come later. Until then the only access control is the server-wide
-`auth.default-access`; read the warning in `deploy/server.yml` before exposing a server.
+The sample `server.yml` starts with `auth.default-access: deny-all`, so nobody can do anything until
+you create a user. The `flare user`, `flare access` and `flare token` commands work on the database
+directly, and take effect at once on a running server:
+
+```bash
+docker compose -f deploy/docker-compose.yml exec flare flare user add --admin alice
+docker compose -f deploy/docker-compose.yml exec flare flare user add bob
+docker compose -f deploy/docker-compose.yml exec flare flare access grant bob 'alerts-*' read-write
+docker compose -f deploy/docker-compose.yml exec flare flare token add --label backup-server bob
+```
+
+The last command prints a token to put in the script that publishes (`FLARE_TOKEN` or
+`Authorization: Bearer …`). Users get their own tokens with `flare login`. `trusted-proxies` in the sample
+names the Docker network that Caddy reaches the server over; see the comment there.
 
 ### 13.2 Other ways to install
 
@@ -1082,7 +1106,8 @@ rights). This pairs naturally with white-labelling:
 
 **Phase 1 — MVP**
 - Server, single node: publish, WebSocket/SSE/JSON/poll subscribe, SQLite cache with catch-up, Docker image
-  and the Compose self-hosting guide (**done**). Still to do: tokens and ACL, rate limits.
+  and the Compose self-hosting guide (**done**), users, access tokens and per-topic access rules
+(**done**). Still to do: rate limits for publishing, and abuse protection.
 - CLI: `flare publish`, `flare subscribe` (**done**).
 - Android app (FCM + instant-delivery mode) and desktop apps (tray + native notifications).
 

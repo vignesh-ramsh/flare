@@ -4,9 +4,10 @@
 # misspelled setting, or one the server doesn't support yet, is an error rather
 # than being ignored. Each setting can also be given as an environment variable
 # (FLARE_BASE_URL, FLARE_LISTEN, FLARE_DATABASE, FLARE_CACHE_DURATION,
-# FLARE_MESSAGE_SIZE_LIMIT, FLARE_AUTH_DEFAULT_ACCESS, FLARE_BRANDING_NAME,
-# FLARE_BRANDING_PRIMARY_COLOR, FLARE_BRANDING_APP_URL_SCHEME), which win over
-# this file, and command-line flags win over both.
+# FLARE_MESSAGE_SIZE_LIMIT, FLARE_TRUSTED_PROXIES, FLARE_AUTH_DEFAULT_ACCESS,
+# FLARE_BRANDING_NAME, FLARE_BRANDING_PRIMARY_COLOR,
+# FLARE_BRANDING_APP_URL_SCHEME), which win over this file, and command-line
+# flags win over both.
 
 # The public address of the server, as users reach it.
 base-url: https://flare.example.com
@@ -25,16 +26,42 @@ cache-duration: 24h
 # keep it small.
 message-size-limit: 4096
 
+# The reverse proxies in front of the server, as addresses or ranges. Only they
+# are believed when they say, in X-Forwarded-For, who a client is; the server
+# uses that to count failed logins per client. Leave it empty if clients connect
+# to the server directly.
+#
+# Left empty behind a proxy, every client looks like the proxy, so a few wrong
+# passwords from anyone lock everybody out of logging in. Listed too widely (a
+# range that clients can also connect from), a client can pretend to be someone
+# else and dodge that limit.
+#
+# This is the range Docker Compose gives its private networks, which Caddy
+# reaches the server over (the server's port is not published). With Caddy on
+# the same machine but outside Docker, use [127.0.0.1, "::1"] instead.
+trusted-proxies:
+  - 172.16.0.0/12
+  - 192.168.0.0/16
+
 auth:
-  # What anyone who can reach the server may do: read-write, read-only,
-  # write-only or deny-all.
+  # What a visitor who has not logged in may do, and what a user may do on a
+  # topic that no access rule covers: read-write, read-only, write-only or
+  # deny-all.
   #
-  # IMPORTANT: accounts and access tokens are not supported yet, so there is no
-  # way to give just some people access. With read-write, anyone who can reach
-  # the server can publish to and read every topic, and a topic's name is the
-  # only thing that protects it. Keep the server on a private network, or behind
-  # a proxy that restricts access, until accounts arrive.
-  default-access: read-write
+  # deny-all means nobody can do anything until you allow it. Set it up with the
+  # commands below (in Docker: docker compose exec flare flare ...):
+  #
+  #   flare user add --admin alice          # asks for a password; may do everything
+  #   flare user add bob
+  #   flare access grant bob 'alerts-*' read-write
+  #   flare access grant everyone status read-only
+  #   flare token add --label backup-server bob    # for a script; shown once
+  #
+  # and users sign in from the apps, or with `flare login`. Use read-write only
+  # for a server that nobody untrusted can reach: then anyone who can reach it
+  # can publish to and read every topic, and a topic's name is all that
+  # protects it.
+  default-access: deny-all
 
 # How the server presents itself to apps (shown at /v1/config).
 branding:

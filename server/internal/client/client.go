@@ -43,6 +43,10 @@ type Client struct {
 	// would cut streams off.
 	HTTP *http.Client
 
+	// Token is the access token to authenticate with, or "" to connect as an
+	// anonymous visitor. Get one with Login.
+	Token string
+
 	// MinBackoff and MaxBackoff bound how long Subscribe waits before
 	// reconnecting; the wait doubles with every failed attempt.
 	MinBackoff, MaxBackoff time.Duration
@@ -96,6 +100,7 @@ func (c *Client) Publish(ctx context.Context, topic, body string, opt PublishOpt
 	set("Tags", strings.Join(opt.Tags, ","))
 	set("Click", opt.Click)
 
+	c.authorize(req)
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		return message.Message{}, err
@@ -109,6 +114,60 @@ func (c *Client) Publish(ctx context.Context, topic, body string, opt PublishOpt
 		return message.Message{}, fmt.Errorf("unexpected answer from the server: %w", err)
 	}
 	return m, nil
+}
+
+// authorize adds the access token, if there is one, to a request.
+func (c *Client) authorize(req *http.Request) {
+	if c.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.Token)
+	}
+}
+
+// LoginOptions are the optional parts of a login.
+type LoginOptions struct {
+	// Label names the token, such as the device it is for.
+	Label string
+	// ExpiresIn is how long the token lasts; zero means until revoked.
+	ExpiresIn time.Duration
+}
+
+// LoginResult is what a successful login returns.
+type LoginResult struct {
+	// Token is the secret to use as Client.Token. It is shown only once.
+	Token string `json:"token"`
+	// ID names the token for listing and revoking it.
+	ID   string `json:"id"`
+	User string `json:"user"`
+	Role string `json:"role"`
+}
+
+// Login exchanges a user name and password for an access token. Keep the token and
+// discard the password: tokens can be revoked one at a time, and don't have to be
+// checked against a slow password hash on every request.
+func (c *Client) Login(ctx context.Context, user, password string, opt LoginOptions) (LoginResult, error) {
+	body, err := json.Marshal(map[string]any{"label": opt.Label, "expires_in": int64(opt.ExpiresIn / time.Second)})
+	if err != nil {
+		return LoginResult{}, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+"/v1/auth/login", strings.NewReader(string(body)))
+	if err != nil {
+		return LoginResult{}, err
+	}
+	req.SetBasicAuth(user, password)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return LoginResult{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return LoginResult{}, readError(resp)
+	}
+	var result LoginResult
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil || result.Token == "" {
+		return LoginResult{}, fmt.Errorf("unexpected answer from the server: %v", err)
+	}
+	return result, nil
 }
 
 // readError turns a non-200 response into an APIError.
@@ -244,6 +303,7 @@ func (c *Client) followOnce(ctx context.Context, path string, pos *position, liv
 	if err != nil {
 		return false, err
 	}
+	c.authorize(req)
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		return false, err

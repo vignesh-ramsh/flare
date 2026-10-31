@@ -19,8 +19,15 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The Flare server and command-line client (`server/`): publishing over HTTP; subscribing by streaming
   JSON, Server-Sent Events and WebSocket; catching up on missed messages without gaps or repeats; SQLite
   storage; graceful shutdown; `flare serve`, `flare publish` and `flare subscribe`. The HTTP contract is in
-  `api/openapi.yaml`. Accounts, rate limits and push notifications are not implemented yet.
+  `api/openapi.yaml`. Rate limits and push notifications are not implemented yet.
 - A container image, Docker Compose file, Caddyfile and sample configuration (`deploy/`), and CI for the
   server on the minimum and the latest Go.
+- Accounts: users with Argon2id passwords, access tokens (`flr_...`, stored only as hashes), and
+  per-topic access rules with patterns, where the most specific rule wins. `flare user`, `flare token`,
+  `flare access` and `flare login` manage them; `POST /v1/auth/login` and `/v1/account` serve apps.
+  Streams and WebSockets end when the token, user or rule they depend on is withdrawn. Failed logins
+  are limited per client, and `trusted-proxies` says which proxies to believe about who that is. An
+  anonymous visitor who is refused gets `401` and a logged-in user `403`; wrong credentials are never
+  treated as anonymous. The sample configuration now starts with `auth.default-access: deny-all`.
 - CI for the brand tool, tested on the oldest supported Dart (3.9) and the current stable one, and a
   check that app code never hard-codes the project name.

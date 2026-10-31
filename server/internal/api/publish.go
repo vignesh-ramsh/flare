@@ -67,7 +67,11 @@ func unsupportedSetting(r *http.Request) string {
 // publish.
 func (a *API) publishRaw(w http.ResponseWriter, r *http.Request) {
 	topic := r.PathValue("topic")
-	if !checkTopic(w, topic) || !a.authorize(w, r, topic, auth.Write) {
+	if !checkTopic(w, topic) {
+		return
+	}
+	id, ok := a.identify(w, r)
+	if !ok || !a.allowed(w, r, id, topic, auth.Write) {
 		return
 	}
 	if name := unsupportedSetting(r); name != "" {
@@ -115,6 +119,12 @@ func (a *API) publishRaw(w http.ResponseWriter, r *http.Request) {
 
 // publishJSON is POST /v1/messages: the same, with everything in a JSON body.
 func (a *API) publishJSON(w http.ResponseWriter, r *http.Request) {
+	// Who is asking is known from the headers alone, so find out before reading
+	// a body for somebody who isn't allowed to send one.
+	id, ok := a.identify(w, r)
+	if !ok {
+		return
+	}
 	var in struct {
 		Topic    string   `json:"topic"`
 		Message  string   `json:"message"`
@@ -142,7 +152,7 @@ func (a *API) publishJSON(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !checkTopic(w, in.Topic) || !a.authorize(w, r, in.Topic, auth.Write) {
+	if !checkTopic(w, in.Topic) || !a.allowed(w, r, id, in.Topic, auth.Write) {
 		return
 	}
 	a.publish(w, r, message.Draft{

@@ -30,8 +30,12 @@ func (a *API) stream(w http.ResponseWriter, r *http.Request, sse bool) {
 		writeError(w, apierr.InvalidTopic, err.Error())
 		return
 	}
+	id, ok := a.identify(w, r)
+	if !ok {
+		return
+	}
 	for _, topic := range topics {
-		if !a.authorize(w, r, topic, auth.Read) {
+		if !a.allowed(w, r, id, topic, auth.Read) {
 			return
 		}
 	}
@@ -56,14 +60,18 @@ func (a *API) stream(w http.ResponseWriter, r *http.Request, sse bool) {
 
 	r, done := a.untilShutdown(r)
 	defer done()
+	// An open stream outlives the moment it was authorized, so it checks again at
+	// every heartbeat; see revalidator.
+	opts := a.Stream
+	opts.Revalidate = a.revalidator(r, id, topics)
 	switch {
 	case poll:
 		started, err := realtime.ServePoll(w, r, a.Hub, topics, cursor.After, a.Stream)
 		a.streamEnded(w, err, started)
 	case sse:
-		a.streamEnded(w, realtime.ServeSSE(w, r, a.Hub, topics, cursor, a.Stream), true)
+		a.streamEnded(w, realtime.ServeSSE(w, r, a.Hub, topics, cursor, opts), true)
 	default:
-		a.streamEnded(w, realtime.ServeJSON(w, r, a.Hub, topics, cursor, a.Stream), true)
+		a.streamEnded(w, realtime.ServeJSON(w, r, a.Hub, topics, cursor, opts), true)
 	}
 }
 
@@ -71,13 +79,18 @@ func (a *API) stream(w http.ResponseWriter, r *http.Request, sse bool) {
 // client left, the server is shutting down, or the client fell behind and will
 // reconnect. Only a fault on the server's side is worth an error.
 func (a *API) streamEnded(w http.ResponseWriter, err error, started bool) {
-	var writeErr *realtime.WriteError
+	var (
+		writeErr *realtime.WriteError
+		revoked  *realtime.RevokedError
+	)
 	switch {
 	case err == nil, errors.Is(err, context.Canceled), errors.Is(err, broker.ErrClosed):
 	case errors.Is(err, broker.ErrLagged):
 		a.Log.Debug("stream ended: subscriber fell behind")
 	case errors.As(err, &writeErr):
 		a.Log.Debug("stream ended: client went away", "error", err)
+	case errors.As(err, &revoked):
+		a.Log.Debug("stream ended: access was withdrawn")
 	default:
 		a.Log.Error("stream failed", "error", err)
 		if !started {
@@ -97,13 +110,22 @@ func isTrue(s string) bool {
 // websocket serves GET /v1/ws. Every subscribe and publish on the connection is
 // authorized separately.
 func (a *API) websocket(w http.ResponseWriter, r *http.Request) {
-	authorized := r // the authorizer looks at the original request
+	// Native clients can log in with a header here; browsers, which can't set one,
+	// send an "auth" frame afterwards.
+	id, ok := a.identify(w, r)
+	if !ok {
+		return
+	}
+	ip := a.Auth.ClientIP(r)
 	r, done := a.untilShutdown(r)
 	defer done()
 	err := realtime.ServeWS(w, r, a.Hub, realtime.WSOptions{
-		Authorize: func(topic string, p auth.Permission) error {
-			return a.Auth.Authorize(authorized, topic, p)
+		Identity:  id,
+		Authorize: a.Auth.Authorize,
+		Login: func(ctx context.Context, token string) (auth.Identity, error) {
+			return a.Auth.AuthenticateToken(ctx, token, ip)
 		},
+		Revalidate:     a.Auth.Revalidate,
 		MaxMessageSize: a.Config.MessageSizeLimit,
 		PingInterval:   a.WSPingInterval,
 		WriteTimeout:   a.Stream.WriteTimeout,

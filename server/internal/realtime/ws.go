@@ -19,10 +19,21 @@ import (
 
 // WSOptions configure ServeWS.
 type WSOptions struct {
-	// Authorize says whether this connection may do perm to topic. It is asked
-	// for every subscribe and publish, so a connection can only ever do what its
-	// requests are allowed to.
-	Authorize func(topic string, perm auth.Permission) error
+	// Identity is who the request that opened the connection came from. An "auth"
+	// frame can replace it.
+	Identity auth.Identity
+	// Authorize says whether id may do perm to topic. It is asked for every
+	// subscribe and publish, so a connection can only ever do what its owner is
+	// allowed to.
+	Authorize func(ctx context.Context, id auth.Identity, topic string, perm auth.Permission) error
+	// Login handles an "auth" frame: it turns an access token into an identity.
+	// Browsers can't set headers on a WebSocket, so this is how they log in. Nil
+	// means the server has no accounts to log in to.
+	Login func(ctx context.Context, token string) (auth.Identity, error)
+	// Revalidate is called every PingInterval to check that the identity is still
+	// good. If its credentials were revoked, the connection is closed; if access to
+	// a topic was withdrawn, that subscription ends.
+	Revalidate func(ctx context.Context, id auth.Identity) (auth.Identity, error)
 	// MaxSubscriptions limits how many topics one connection can follow.
 	MaxSubscriptions int
 	// MaxMessageSize is the hub's message size limit, used to size the largest
@@ -63,6 +74,7 @@ type wsRequest struct {
 	Priority int      `json:"priority"`
 	Tags     []string `json:"tags"`
 	Click    string   `json:"click"`
+	Token    string   `json:"token"`
 }
 
 // wsEvent is a frame from the server other than a message.
@@ -70,6 +82,7 @@ type wsEvent struct {
 	Event string `json:"event"`
 	Topic string `json:"topic,omitempty"`
 	ID    string `json:"id,omitempty"`
+	User  string `json:"user,omitempty"`
 	Code  int    `json:"code,omitempty"`
 	Error string `json:"error,omitempty"`
 }
@@ -97,7 +110,7 @@ func ServeWS(w http.ResponseWriter, r *http.Request, hub *Hub, opt WSOptions) er
 
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
-	c := &wsConn{conn: conn, hub: hub, opt: opt, ctx: ctx, cancel: cancel, subs: map[string]*wsSub{}}
+	c := &wsConn{conn: conn, hub: hub, opt: opt, ctx: ctx, cancel: cancel, subs: map[string]*wsSub{}, who: opt.Identity}
 
 	c.wg.Add(1)
 	go c.pingLoop()
@@ -136,6 +149,27 @@ type wsConn struct {
 
 	mu   sync.Mutex
 	subs map[string]*wsSub
+	who  auth.Identity // who this connection is, guarded by mu
+}
+
+func (c *wsConn) identity() auth.Identity {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.who
+}
+
+// ioContext returns the context for one write or ping. It is deliberately not
+// derived from the connection's own context.
+//
+// The library closes the TCP connection, without a close frame, if the context it
+// is given is cancelled while a write or ping is under way. The connection's
+// context is cancelled at shutdown, and a client can already have received a frame
+// while the server's Write call for it has not quite returned; a shutdown in that
+// moment would kill the connection instead of closing it politely. So writes get a
+// timeout of their own, and shutdown is dealt with by closing the connection
+// properly (see ServeWS).
+func (c *wsConn) ioContext() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), c.opt.WriteTimeout)
 }
 
 // send writes v as one text frame. Writes are safe to make from several
@@ -145,7 +179,7 @@ func (c *wsConn) send(v any) error {
 	if err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(c.ctx, c.opt.WriteTimeout)
+	ctx, cancel := c.ioContext()
 	defer cancel()
 	return c.conn.Write(ctx, websocket.MessageText, data)
 }
@@ -163,13 +197,51 @@ func (c *wsConn) pingLoop() {
 		case <-c.ctx.Done():
 			return
 		case <-t.C:
-			ctx, cancel := context.WithTimeout(c.ctx, c.opt.WriteTimeout)
+			ctx, cancel := c.ioContext()
 			err := c.conn.Ping(ctx)
 			cancel()
 			if err != nil {
 				c.cancel() // the client is gone: stop reading and clean up
 				c.conn.CloseNow()
 				return
+			}
+			c.revalidate()
+		}
+	}
+}
+
+// revalidate checks that the connection's owner is still who they were and still
+// allowed what they are subscribed to.
+func (c *wsConn) revalidate() {
+	if c.opt.Revalidate == nil {
+		return
+	}
+	fresh, err := c.opt.Revalidate(c.ctx, c.identity())
+	if err != nil {
+		if errors.Is(err, auth.ErrBadCredentials) {
+			c.fail("", apierr.InvalidCredentials, "your credentials are no longer valid")
+			c.cancel()
+			c.conn.Close(websocket.StatusPolicyViolation, "credentials no longer valid")
+		}
+		return // anything else is a hiccup on our side: try again next time
+	}
+	c.mu.Lock()
+	c.who = fresh
+	topics := make([]string, 0, len(c.subs))
+	for topic := range c.subs {
+		topics = append(topics, topic)
+	}
+	c.mu.Unlock()
+
+	for _, topic := range topics {
+		if err := c.opt.Authorize(c.ctx, fresh, topic, auth.Read); err != nil {
+			c.mu.Lock()
+			sub := c.subs[topic]
+			delete(c.subs, topic)
+			c.mu.Unlock()
+			if sub != nil {
+				sub.cancel()
+				c.failAuth(topic, err)
 			}
 		}
 	}
@@ -199,7 +271,7 @@ func (c *wsConn) readLoop() {
 		case "publish":
 			c.publish(req)
 		case "auth":
-			c.fail("", apierr.Unauthorized, "this server has no accounts, so there is nothing to authenticate")
+			c.login(req)
 		default:
 			c.fail(req.Topic, apierr.InvalidParameter, "unknown op "+quote(req.Op)+": use subscribe, unsubscribe or publish")
 		}
@@ -218,11 +290,56 @@ func (c *wsConn) checkTopic(topic string, perm auth.Permission) bool {
 		c.fail(topic, apierr.InvalidTopic, "invalid topic name")
 		return false
 	}
-	if err := c.opt.Authorize(topic, perm); err != nil {
-		c.fail(topic, apierr.Forbidden, err.Error())
+	if err := c.opt.Authorize(c.ctx, c.identity(), topic, perm); err != nil {
+		c.failAuth(topic, err)
 		return false
 	}
 	return true
+}
+
+// failAuth reports why an operation was refused.
+func (c *wsConn) failAuth(topic string, err error) {
+	switch {
+	case errors.Is(err, auth.ErrUnauthorized):
+		c.fail(topic, apierr.Unauthorized, err.Error())
+	case errors.Is(err, auth.ErrForbidden):
+		c.fail(topic, apierr.Forbidden, err.Error())
+	default:
+		c.opt.Log.Error("websocket authorization failed", "error", err)
+		c.fail(topic, apierr.Internal, "internal error")
+	}
+}
+
+// login handles an "auth" frame. It is only allowed before subscribing, so that
+// a connection never holds subscriptions that were authorized as somebody else.
+func (c *wsConn) login(req wsRequest) {
+	if c.opt.Login == nil {
+		c.fail("", apierr.Unauthorized, "this server has no accounts, so there is nothing to log in to")
+		return
+	}
+	c.mu.Lock()
+	busy := len(c.subs) > 0
+	c.mu.Unlock()
+	if busy {
+		c.fail("", apierr.InvalidParameter, "log in before subscribing to anything")
+		return
+	}
+	id, err := c.opt.Login(c.ctx, req.Token)
+	var throttled *auth.ThrottledError
+	switch {
+	case err == nil:
+		c.mu.Lock()
+		c.who = id
+		c.mu.Unlock()
+		_ = c.send(wsEvent{Event: "authenticated", User: id.User.Name})
+	case errors.Is(err, auth.ErrBadCredentials):
+		c.fail("", apierr.InvalidCredentials, "that token is not valid")
+	case errors.As(err, &throttled):
+		c.fail("", apierr.Throttled, err.Error())
+	default:
+		c.opt.Log.Error("websocket login failed", "error", err)
+		c.fail("", apierr.Internal, "internal error")
+	}
 }
 
 func (c *wsConn) subscribe(req wsRequest) {

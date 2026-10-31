@@ -36,6 +36,10 @@ type Config struct {
 	CacheDuration time.Duration `yaml:"cache-duration"`
 	// MessageSizeLimit is the largest message body, in bytes.
 	MessageSizeLimit int `yaml:"message-size-limit"`
+	// TrustedProxies are the reverse proxies in front of the server, as addresses
+	// or CIDR ranges. Only they are believed when they say, in X-Forwarded-For,
+	// who a client is; the server needs that to count failed logins per client.
+	TrustedProxies []string `yaml:"trusted-proxies"`
 
 	Auth     Auth     `yaml:"auth"`
 	Branding Branding `yaml:"branding"`
@@ -138,6 +142,9 @@ func (c *Config) ApplyEnv(getenv func(string) string) error {
 	str("FLARE_BRANDING_NAME", &c.Branding.Name)
 	str("FLARE_BRANDING_PRIMARY_COLOR", &c.Branding.PrimaryColor)
 	str("FLARE_BRANDING_APP_URL_SCHEME", &c.Branding.AppURLScheme)
+	if v := getenv("FLARE_TRUSTED_PROXIES"); v != "" {
+		c.TrustedProxies = strings.Split(v, ",")
+	}
 	if v := getenv("FLARE_CACHE_DURATION"); v != "" {
 		if d, err := time.ParseDuration(v); err != nil {
 			errs = append(errs, fmt.Errorf("FLARE_CACHE_DURATION: %w", err))
@@ -196,8 +203,11 @@ func (c *Config) Validate() error {
 	if c.MessageSizeLimit < 1 || c.MessageSizeLimit > 65536 {
 		bad("message-size-limit", "must be between 1 and 65536 bytes (found %d)", c.MessageSizeLimit)
 	}
-	if _, err := auth.ParseDefaultAccess(c.Auth.DefaultAccess); err != nil {
+	if _, err := auth.ParseAccess(c.Auth.DefaultAccess); err != nil {
 		bad("auth.default-access", "%v", err)
+	}
+	if _, err := auth.ParseProxies(c.TrustedProxies); err != nil {
+		bad("trusted-proxies", "%v", err)
 	}
 
 	b := c.Branding
@@ -234,6 +244,6 @@ func (c *Config) DatabasePath() (string, error) {
 // Open reports whether anyone who can reach the server may publish or subscribe
 // without logging in.
 func (c *Config) Open() bool {
-	a, err := auth.ParseDefaultAccess(c.Auth.DefaultAccess)
+	a, err := auth.ParseAccess(c.Auth.DefaultAccess)
 	return err == nil && a.Open()
 }

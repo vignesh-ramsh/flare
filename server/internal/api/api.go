@@ -8,12 +8,10 @@ package api
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"net/http"
 	"time"
 
-	"github.com/vignesh-ramsh/flare/server/internal/apierr"
 	"github.com/vignesh-ramsh/flare/server/internal/auth"
 	"github.com/vignesh-ramsh/flare/server/internal/config"
 	"github.com/vignesh-ramsh/flare/server/internal/realtime"
@@ -22,7 +20,7 @@ import (
 // Deps are what the API needs to do its work.
 type Deps struct {
 	Hub    *realtime.Hub
-	Auth   auth.Authorizer
+	Auth   *auth.Service
 	Config config.Config
 	Log    *slog.Logger
 
@@ -72,6 +70,10 @@ func (a *API) routes() []route {
 		{"GET /v1/config", a.serverConfig},
 		{"POST /v1/messages", a.publishJSON},
 		{"GET /v1/ws", a.websocket},
+		{"POST /v1/auth/login", a.login},
+		{"GET /v1/account", a.account},
+		{"GET /v1/account/tokens", a.listTokens},
+		{"DELETE /v1/account/tokens/{id}", a.deleteToken},
 		{"GET /{topics}/json", a.streamJSON},
 		{"GET /{topics}/sse", a.streamSSE},
 		{"POST /{topic}", a.publishRaw},
@@ -99,20 +101,4 @@ func (a *API) untilShutdown(r *http.Request) (*http.Request, context.CancelFunc)
 	ctx, cancel := context.WithCancel(r.Context())
 	stop := context.AfterFunc(a.Shutdown, cancel)
 	return r.WithContext(ctx), func() { stop(); cancel() }
-}
-
-// authorize asks the Authorizer and, if the request is refused, answers it. It
-// reports whether the request may go on.
-func (a *API) authorize(w http.ResponseWriter, r *http.Request, topic string, p auth.Permission) bool {
-	err := a.Auth.Authorize(r, topic, p)
-	switch {
-	case err == nil:
-		return true
-	case errors.Is(err, auth.ErrForbidden):
-		writeError(w, apierr.Forbidden, err.Error())
-	default:
-		a.Log.Error("authorization failed", "error", err)
-		writeError(w, apierr.Internal, "internal error")
-	}
-	return false
 }

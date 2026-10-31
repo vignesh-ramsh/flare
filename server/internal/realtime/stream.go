@@ -21,6 +21,10 @@ type StreamOptions struct {
 	// WriteTimeout is how long one write may take. A client that stops reading
 	// would otherwise hold its connection, and its goroutine, forever.
 	WriteTimeout time.Duration
+	// Revalidate, if set, is called at every heartbeat. If it returns an error the
+	// stream ends: the credentials were revoked, or access to a topic was taken
+	// away, and the subscriber must not keep receiving until it next reconnects.
+	Revalidate func() error
 }
 
 // DefaultHeartbeat is how often keepalives are sent by default. Clients treat a
@@ -43,6 +47,13 @@ type WriteError struct{ Err error }
 
 func (e *WriteError) Error() string { return "write to client: " + e.Err.Error() }
 func (e *WriteError) Unwrap() error { return e.Err }
+
+// RevokedError is returned by the streaming functions when a stream ended because
+// the subscriber's access was withdrawn.
+type RevokedError struct{ Err error }
+
+func (e *RevokedError) Error() string { return "access withdrawn: " + e.Err.Error() }
+func (e *RevokedError) Unwrap() error { return e.Err }
 
 // format is how an event is written to a stream.
 type format interface {
@@ -130,6 +141,11 @@ func serveStream(w http.ResponseWriter, r *http.Request, hub *Hub, topics []stri
 		},
 		Message: send,
 		Heartbeat: func() error {
+			if opt.Revalidate != nil {
+				if err := opt.Revalidate(); err != nil {
+					return &RevokedError{err}
+				}
+			}
 			return send(message.Message{Time: hub.Now().Unix(), Event: message.EventKeepalive, Topic: label})
 		},
 	})

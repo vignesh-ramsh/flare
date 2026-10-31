@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -510,5 +511,110 @@ func TestBackoffGrowsThenCapsAndResetsAfterASuccess(t *testing.T) {
 	}
 	if gap(6) > 55*time.Millisecond {
 		t.Errorf("after a connection that worked the wait was %v, want it back near the 20ms minimum", gap(6))
+	}
+}
+
+func TestTheTokenIsSentOnEveryRequest(t *testing.T) {
+	var mu sync.Mutex
+	seen := map[string]string{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		seen[r.Method+" "+r.URL.Path] = r.Header.Get("Authorization")
+		mu.Unlock()
+		if r.Method == "POST" {
+			json.NewEncoder(w).Encode(message.Message{ID: "x", Event: "message", Topic: "t"})
+			return
+		}
+		w.WriteHeader(200)
+		send(w, msg("a"))
+	}))
+	defer srv.Close()
+	c, _ := New(srv.URL)
+	c.Token = "flr_" + strings.Repeat("a", 43)
+
+	if _, err := c.Publish(context.Background(), "t", "x", PublishOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	c.Subscribe(context.Background(), []string{"t"}, SubscribeOptions{Poll: true}, func(message.Message) error { return nil })
+
+	for request, got := range map[string]string{"POST /t": seen["POST /t"], "GET /t/json": seen["GET /t/json"]} {
+		if got != "Bearer "+c.Token {
+			t.Errorf("%s was sent with Authorization %q", request, got)
+		}
+	}
+
+	// Without a token, nothing is sent: the client is an anonymous visitor.
+	c.Token = ""
+	c.Publish(context.Background(), "t", "x", PublishOptions{})
+	if got := seen["POST /t"]; got != "" {
+		t.Errorf("an Authorization header %q was sent without a token", got)
+	}
+}
+
+func TestLogin(t *testing.T) {
+	var gotUser, gotPass, gotBody string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotUser, gotPass, _ = r.BasicAuth()
+		b, _ := io.ReadAll(r.Body)
+		gotBody = string(b)
+		if gotPass != "right password" {
+			w.WriteHeader(401)
+			w.Write([]byte(`{"code":40102,"http":401,"error":"invalid credentials: wrong"}`))
+			return
+		}
+		w.Write([]byte(`{"token":"flr_secret","id":"tok1","user":"alice","role":"user"}`))
+	}))
+	defer srv.Close()
+	c, _ := New(srv.URL)
+
+	res, err := c.Login(context.Background(), "alice", "right password", LoginOptions{Label: "phone", ExpiresIn: time.Hour})
+	if err != nil || res.Token != "flr_secret" || res.User != "alice" || res.ID != "tok1" {
+		t.Fatalf("Login = %+v, %v", res, err)
+	}
+	if gotUser != "alice" || gotPass != "right password" {
+		t.Errorf("sent credentials %q / %q", gotUser, gotPass)
+	}
+	if gotBody != `{"expires_in":3600,"label":"phone"}` {
+		t.Errorf("body = %s", gotBody)
+	}
+	if strings.Contains(gotBody, "right password") {
+		t.Error("the password was put in the body as well as the header")
+	}
+
+	_, err = c.Login(context.Background(), "alice", "wrong", LoginOptions{})
+	var api *APIError
+	if !errors.As(err, &api) || api.Code != 40102 || api.HTTP != 401 {
+		t.Errorf("a wrong password: %v", err)
+	}
+}
+
+func TestLoginRefusesAnAnswerWithoutAToken(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(`{}`)) }))
+	defer srv.Close()
+	c, _ := New(srv.URL)
+	if _, err := c.Login(context.Background(), "a", "b", LoginOptions{}); err == nil {
+		t.Error("a login that returned no token was accepted")
+	}
+}
+
+func TestSubscribeGivesUpWhenAccessIsWithdrawnMidStream(t *testing.T) {
+	// A revoked token ends the stream; reconnecting then gets a 401, which no amount
+	// of retrying fixes.
+	c, s := start(t,
+		func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200); send(w, open("cp"), msg("last one")) },
+		func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(401)
+			w.Write([]byte(`{"code":40102,"http":401,"error":"invalid credentials"}`))
+		},
+		func(w http.ResponseWriter, r *http.Request) { t.Error("the client retried after a 401") },
+	)
+	var got []string
+	err := c.Subscribe(context.Background(), []string{"t"}, SubscribeOptions{}, func(m message.Message) error {
+		got = append(got, m.Message)
+		return nil
+	})
+	var api *APIError
+	if !errors.As(err, &api) || api.HTTP != 401 || strings.Join(got, ",") != "last one" || s.requests() != 2 {
+		t.Errorf("err = %v, got %v after %d requests", err, got, s.requests())
 	}
 }

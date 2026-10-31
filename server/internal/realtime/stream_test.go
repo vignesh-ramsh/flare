@@ -299,6 +299,21 @@ func (c *wsClient) expect(event string) map[string]any {
 	return f
 }
 
+// expectBoth reads two frames that may arrive in either order and checks that
+// they are the two events asked for. A connection that publishes to a topic it
+// also follows gets the acknowledgement and its own message, and nothing says
+// which comes first: the message is sent by the subscription, the
+// acknowledgement by the request that published it.
+func (c *wsClient) expectBoth(a, b string) map[string]map[string]any {
+	c.t.Helper()
+	first, second := c.read(), c.read()
+	got := map[string]map[string]any{fmt.Sprint(first["event"]): first, fmt.Sprint(second["event"]): second}
+	if len(got) != 2 || got[a] == nil || got[b] == nil {
+		c.t.Fatalf("got frames %v and %v, want a %q and a %q in either order", first, second, a, b)
+	}
+	return got
+}
+
 func (c *wsClient) expectError(code int, mention string) {
 	c.t.Helper()
 	f := c.expect("error")
@@ -307,10 +322,13 @@ func (c *wsClient) expectError(code int, mention string) {
 	}
 }
 
+// allowAll is an Authorize that permits everything.
+func allowAll(context.Context, auth.Identity, string, auth.Permission) error { return nil }
+
 func wsServer(t *testing.T, h *Hub, opt WSOptions) *httptest.Server {
 	t.Helper()
 	if opt.Authorize == nil {
-		opt.Authorize = func(string, auth.Permission) error { return nil }
+		opt.Authorize = allowAll
 	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ServeWS(w, r, h, opt)
@@ -439,7 +457,7 @@ func TestWebSocketReportsMistakesAndKeepsGoing(t *testing.T) {
 
 func TestWebSocketAuthorizesEveryOperation(t *testing.T) {
 	h, _ := newHub(t, Options{})
-	srv := wsServer(t, h, WSOptions{Authorize: func(topic string, perm auth.Permission) error {
+	srv := wsServer(t, h, WSOptions{Authorize: func(_ context.Context, _ auth.Identity, topic string, perm auth.Permission) error {
 		if topic == "secret" || perm == auth.Write && topic == "readonly" {
 			return fmt.Errorf("%w: no %s access to %s", auth.ErrForbidden, perm, topic)
 		}
@@ -477,7 +495,7 @@ func TestWebSocketDisconnectEndsEverythingForThatClient(t *testing.T) {
 	h, _ := newHub(t, Options{})
 	finished := make(chan struct{})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ServeWS(w, r, h, WSOptions{Authorize: func(string, auth.Permission) error { return nil }})
+		ServeWS(w, r, h, WSOptions{Authorize: allowAll})
 		close(finished)
 	}))
 	defer srv.Close()
@@ -496,7 +514,7 @@ func TestWebSocketServerShutdownClosesWithGoingAway(t *testing.T) {
 	h, _ := newHub(t, Options{})
 	base, shutdown := context.WithCancel(context.Background())
 	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ServeWS(w, r, h, WSOptions{Authorize: func(string, auth.Permission) error { return nil }})
+		ServeWS(w, r, h, WSOptions{Authorize: allowAll})
 	}))
 	srv.Config.BaseContext = func(net.Listener) context.Context { return base }
 	srv.Start()

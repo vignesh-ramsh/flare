@@ -28,18 +28,48 @@ info:
 
     ## Status
 
-    This server has no accounts yet. Access is one server-wide policy,
-    `auth.default_access` in `/v1/config`. Attachments, delayed delivery, action
-    buttons and push notifications are not supported yet; a request that uses
-    them is refused with code 40003 instead of having them silently ignored.
+    Attachments, delayed delivery, action buttons and push notifications are not
+    supported yet; a request that uses them is refused with code 40003 instead of
+    having them silently ignored.
+
+    ## Access
+
+    What anyone may do on a topic is decided by access rules. A rule gives a user, or
+    everyone, an access level (`read-write`, `read-only`, `write-only` or `deny-all`)
+    on the topics a pattern matches, where `*` stands for any characters. Of the
+    rules that match, the most specific decides: an exact name beats a pattern, a
+    longer pattern beats a shorter one, and at equal specificity a user's own rule
+    beats the one for everyone, a deny beats an allow, and otherwise rules add up.
+    Where no rule matches, the server's default (`auth.default_access` in
+    `/v1/config`) applies. Administrators may do everything.
+
+    Requests without credentials are anonymous visitors. Credentials are an access
+    token (`Authorization: Bearer flr_...`) or a user name and password (HTTP Basic).
+    A request whose credentials are **wrong is refused**, never treated as anonymous.
+    Tokens are the better choice: a password has to be checked on every request, and
+    they can be revoked one at a time. Get one with `POST /v1/auth/login`.
+
+    The answers when a request is refused: **401** if nobody is logged in and
+    logging in could help, or if the credentials don't work (the response says how to
+    authenticate); **403** if the logged-in user may not; **429** after too many
+    failed logins from one address, with `Retry-After`.
+
+    Open streams and WebSockets re-check access every 30 seconds, so revoking a
+    token or withdrawing access ends a connection that is already open.
   license:
     name: Apache-2.0
     identifier: Apache-2.0
 servers:
   - url: http://localhost:8080
-# No operation needs authentication yet: access is one server-wide policy.
-security: []
+# Credentials are optional: what a request may do depends on the access rules.
+# Anonymous requests are allowed where the rules allow them.
+security:
+  - {}
+  - bearerAuth: []
+  - basicAuth: []
 tags:
+  - name: Account
+    description: Log in, and manage your access tokens.
   - name: Publish
     description: Send a message to a topic.
   - name: Subscribe
@@ -109,6 +139,100 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/Published"
+        default:
+          $ref: "#/components/responses/Error"
+
+  /v1/auth/login:
+    post:
+      tags: [Account]
+      summary: Log in with a password and get an access token
+      description: |
+        Send the user name and password as HTTP Basic credentials. The answer holds a
+        new access token, which is shown **only this once**. Keep it instead of the
+        password. A token can't be used to log in: that would let whoever stole one
+        make more, which would outlive its revocation.
+
+        Failed attempts are counted per client address; after 10 in 10 minutes
+        further attempts are refused with 429.
+      operationId: login
+      security:
+        - basicAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LoginRequest" }
+      responses:
+        "200":
+          description: Logged in.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LoginResponse" }
+        default:
+          $ref: "#/components/responses/Error"
+
+  /v1/account:
+    get:
+      tags: [Account]
+      summary: Who you are and what you may do
+      operationId: getAccount
+      security:
+        - bearerAuth: []
+        - basicAuth: []
+      responses:
+        "200":
+          description: The logged-in user, with the access rules that apply to them.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Account" }
+        default:
+          $ref: "#/components/responses/Error"
+
+  /v1/account/tokens:
+    get:
+      tags: [Account]
+      summary: List your access tokens
+      description: Without their secrets, which are not kept.
+      operationId: listTokens
+      security:
+        - bearerAuth: []
+        - basicAuth: []
+      responses:
+        "200":
+          description: Your tokens.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [tokens]
+                properties:
+                  tokens:
+                    type: array
+                    items: { $ref: "#/components/schemas/TokenInfo" }
+        default:
+          $ref: "#/components/responses/Error"
+
+  /v1/account/tokens/{id}:
+    delete:
+      tags: [Account]
+      summary: Revoke one of your access tokens
+      description: |
+        Anything using the token is cut off, including connections that are already
+        open (within 30 seconds). Revoking the token the request used logs that
+        device out. A token that is not yours is reported as not found.
+      operationId: deleteToken
+      security:
+        - bearerAuth: []
+        - basicAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The token's `id`, as listed (not its secret).
+          schema: { type: string }
+      responses:
+        "204":
+          description: Revoked.
         default:
           $ref: "#/components/responses/Error"
 
@@ -213,6 +337,12 @@ paths:
         Upgrades to a WebSocket. All frames are JSON text. Browsers may only
         connect from the server's own origin.
 
+        Native clients log in with an `Authorization` header on the upgrade request.
+        Browsers can't set one, so they send `{"op":"auth","token":"flr_..."}` as the
+        first frame; the answer is `{"event":"authenticated","user":"..."}`. Logging in
+        is only possible before subscribing to anything. Every subscribe and publish
+        is checked against the access rules for whoever is logged in.
+
         **Client to server**
 
         | Frame | Meaning |
@@ -220,18 +350,22 @@ paths:
         | `{"op":"subscribe","topic":"t","since":"..."}` | Follow a topic. `since` is optional, with the same values as the query parameter; without it only new messages arrive. |
         | `{"op":"unsubscribe","topic":"t"}` | Stop following a topic. |
         | `{"op":"publish","topic":"t","message":"...","title":"...","priority":4,"tags":["a"],"click":"https://..."}` | Publish a message. Only `topic` is required. |
+        | `{"op":"auth","token":"flr_..."}` | Log in, before subscribing. |
 
         **Server to client**
 
         | Frame | Meaning |
         |---|---|
+        | `{"event":"authenticated","user":"alice"}` | Answer to `auth`. |
         | `{"event":"subscribed","topic":"t"}` | The subscription is live; nothing published from now on is missed. |
         | `{"event":"unsubscribed","topic":"t"}` | Answer to `unsubscribe`. |
-        | `{"event":"published","topic":"t","id":"..."}` | The message was stored. |
+        | `{"event":"published","topic":"t","id":"..."}` | The message was stored. A connection that follows the topic it publishes to also receives the message itself, before or after this, and can tell it is its own by the `id`. |
         | `{"event":"message", ...}` | A message, in the shape of the `Message` schema. |
         | `{"event":"error","code":40301,"error":"...","topic":"t"}` | Something was refused. The connection stays open. Code 50002 means a subscription was dropped because the client fell behind: subscribe again with `since` set to the last message received. |
 
-        On server shutdown the connection is closed with status 1001 (going away).
+        On server shutdown the connection is closed with status 1001 (going away). If
+        the user's credentials are revoked, it is closed with status 1008 (policy
+        violation) after an error with code 40102.
       operationId: websocket
       responses:
         "101":
@@ -240,6 +374,17 @@ paths:
           $ref: "#/components/responses/Error"
 
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: "flr_ followed by 43 characters"
+      description: An access token, from `POST /v1/auth/login` or `flare token add`.
+    basicAuth:
+      type: http
+      scheme: basic
+      description: A user name and password. Checked on every request, which is slow by design; prefer a token.
+
   parameters:
     Topic:
       name: topic
@@ -335,11 +480,67 @@ components:
           type: integer
           description: |
             The HTTP status followed by two digits. 40001 invalid topic; 40002 invalid
-            parameter; 40003 not supported (yet); 40004 unreadable body; 40101 no
-            authentication available; 40301 forbidden; 41301 message too large;
-            50001 internal error; 50301 not ready.
+            parameter; 40003 not supported (yet); 40004 unreadable body; 40101 log in
+            first; 40102 invalid credentials; 40301 forbidden; 40401 not found; 40902
+            token limit reached; 41301 message too large; 42902 too many failed
+            logins; 50001 internal error; 50301 not ready.
         http: { type: integer }
         error: { type: string }
+
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        label:
+          type: string
+          maxLength: 64
+          description: A name for the token, such as the device it is for.
+        expires_in:
+          type: integer
+          minimum: 0
+          maximum: 315360000
+          description: Seconds until the token expires. 0 or absent means never.
+
+    TokenInfo:
+      type: object
+      required: [id, created]
+      properties:
+        id: { type: string, description: "Names the token for listing and revoking; it is not the secret." }
+        label: { type: string }
+        created: { type: integer, description: Unix time in seconds. }
+        expires: { type: integer, description: "Unix time in seconds; absent if it never expires." }
+        last_used: { type: integer, description: "Unix time in seconds, to within a minute; absent if never used." }
+
+    LoginResponse:
+      allOf:
+        - $ref: "#/components/schemas/TokenInfo"
+        - type: object
+          required: [token, user, role]
+          properties:
+            token: { type: string, description: "The secret. Shown only this once." }
+            user: { type: string }
+            role: { type: string, enum: [user, admin] }
+
+    Account:
+      type: object
+      required: [user, role, default_access, access]
+      properties:
+        user: { type: string }
+        role: { type: string, enum: [user, admin] }
+        default_access:
+          type: string
+          enum: [read-write, read-only, write-only, deny-all]
+          description: What applies where no rule does. Administrators may do everything regardless.
+        access:
+          type: array
+          description: The rules that apply to this user, their own and those for everyone.
+          items:
+            type: object
+            required: [pattern, access, scope]
+            properties:
+              pattern: { type: string, examples: ["alerts-*"] }
+              access: { type: string, enum: [read-write, read-only, write-only, deny-all] }
+              scope: { type: string, enum: [user, everyone] }
 
     ServerConfig:
       type: object

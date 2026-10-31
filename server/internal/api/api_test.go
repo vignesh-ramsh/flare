@@ -39,8 +39,11 @@ type env struct {
 	api   *API
 	hub   *realtime.Hub
 	store *store.SQLite
+	auth  *auth.Service
 	cfg   config.Config
 	logs  *syncBuffer
+
+	clients int // client addresses handed out by asNewClient
 }
 
 type syncBuffer struct {
@@ -77,19 +80,28 @@ func newEnv(t *testing.T, edit ...func(*config.Config)) *env {
 	}
 	t.Cleanup(func() { st.Close() })
 	hub := realtime.NewHub(st, broker.NewInProc(), realtime.Options{TTL: cfg.CacheDuration, MaxMessageSize: cfg.MessageSizeLimit})
-	access, _ := auth.ParseDefaultAccess(cfg.Auth.DefaultAccess)
+	access, _ := auth.ParseAccess(cfg.Auth.DefaultAccess)
+	proxies, err := auth.ParseProxies(cfg.TrustedProxies)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := auth.NewService(st, auth.ServiceConfig{
+		Default: access, Proxies: proxies,
+		HashParams: auth.Params{Time: 1, MemoryKiB: 64, Threads: 1}, // cheap, for tests
+	})
 	logs := &syncBuffer{}
 	a := New(Deps{
-		Hub: hub, Auth: auth.NewPolicy(access), Config: cfg,
-		Log:    slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
-		Stream: realtime.StreamOptions{Heartbeat: 40 * time.Millisecond},
+		Hub: hub, Auth: svc, Config: cfg,
+		Log:            slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
+		Stream:         realtime.StreamOptions{Heartbeat: 40 * time.Millisecond},
+		WSPingInterval: 40 * time.Millisecond,
 	})
 	srv := httptest.NewServer(a.Handler())
 	t.Cleanup(srv.Close)
-	return &env{t: t, srv: srv, api: a, hub: hub, store: st, cfg: cfg, logs: logs}
+	return &env{t: t, srv: srv, api: a, hub: hub, store: st, auth: svc, cfg: cfg, logs: logs}
 }
 
-func access(level auth.DefaultAccess) func(*config.Config) {
+func access(level auth.Access) func(*config.Config) {
 	return func(c *config.Config) { c.Auth.DefaultAccess = string(level) }
 }
 
@@ -503,11 +515,14 @@ func TestWebSocketThroughTheWholeStack(t *testing.T) {
 		t.Errorf("got %v, want the message published over HTTP", f)
 	}
 	conn.Write(ctx, websocket.MessageText, []byte(`{"op":"publish","topic":"t","message":"over ws"}`))
-	if f := read(); f["event"] != "published" {
-		t.Errorf("got %v", f)
+	// The acknowledgement and the message (this connection follows the topic) come in either order.
+	first, second := read(), read()
+	ack, msg := first, second
+	if first["event"] == "message" {
+		ack, msg = second, first
 	}
-	if f := read(); f["event"] != "message" || f["message"] != "over ws" {
-		t.Errorf("got %v", f)
+	if ack["event"] != "published" || msg["event"] != "message" || msg["message"] != "over ws" || ack["id"] != msg["id"] {
+		t.Errorf("got %v and %v, want the acknowledgement and the message, for the same ID", first, second)
 	}
 	// A connection is logged when it ends, so hang up and wait for the line.
 	conn.Close(websocket.StatusNormalClosure, "")
@@ -561,7 +576,7 @@ func TestEveryMessageIsDeliveredOnceInOrderUnderLoad(t *testing.T) {
 
 func TestAccessPolicies(t *testing.T) {
 	tests := []struct {
-		level           auth.DefaultAccess
+		level           auth.Access
 		publish, read   bool
 		describeAllowed string
 	}{
@@ -579,7 +594,11 @@ func TestAccessPolicies(t *testing.T) {
 					t.Errorf("%s should be allowed with %s, got %d %s", what, tt.describeAllowed, resp.StatusCode, data)
 				}
 				if !allowed {
-					e.expectError(resp, data, apierr.Forbidden, "does not allow")
+					// Nobody is logged in, so the answer is "log in", not "no".
+					e.expectError(resp, data, apierr.Unauthorized, "log in")
+					if resp.Header.Get("WWW-Authenticate") == "" {
+						t.Errorf("%s: a 401 must say how to authenticate", what)
+					}
 				}
 			}
 			resp, data := e.do("POST", "/t", "x")
@@ -596,7 +615,7 @@ func TestAccessPolicies(t *testing.T) {
 			}
 			if !tt.read {
 				data, _ := io.ReadAll(body)
-				e.expectError(resp, data, apierr.Forbidden, "does not allow")
+				e.expectError(resp, data, apierr.Unauthorized, "log in")
 			}
 		})
 	}
@@ -622,8 +641,8 @@ func TestWebSocketFollowsTheAccessPolicy(t *testing.T) {
 	defer conn.CloseNow()
 	conn.Write(ctx, websocket.MessageText, []byte(`{"op":"publish","topic":"t","message":"x"}`))
 	_, data, _ := conn.Read(ctx)
-	if !strings.Contains(string(data), `"code":40301`) {
-		t.Errorf("got %s, want a forbidden error", data)
+	if !strings.Contains(string(data), `"code":40101`) {
+		t.Errorf("got %s, want an error telling the anonymous visitor to log in", data)
 	}
 	conn.Write(ctx, websocket.MessageText, []byte(`{"op":"subscribe","topic":"t"}`))
 	_, data, _ = conn.Read(ctx)
@@ -670,7 +689,7 @@ func TestServerInformation(t *testing.T) {
 	}
 	if cfg.APIVersion != 1 || cfg.Name != "Acme Alerts" || cfg.PrimaryColor != "#F97316" || cfg.AppURLScheme != "acme-alerts" ||
 		cfg.BaseURL != "https://flare.example.com" || cfg.Limits.MessageSize != 200 || cfg.Limits.CacheDuration != 86400 ||
-		cfg.Auth.DefaultAccess != "read-write" || strings.Join(cfg.Features, ",") != "publish,poll,sse,websocket" {
+		cfg.Auth.DefaultAccess != "read-write" || strings.Join(cfg.Features, ",") != "publish,poll,sse,websocket,accounts" {
 		t.Errorf("config = %+v", cfg)
 	}
 	for _, secret := range []string{"sqlite", ".db", "listen"} {
@@ -694,7 +713,8 @@ func TestStoreFailureIsAnInternalErrorWithoutDetails(t *testing.T) {
 	e := newEnv(t)
 	e.store.Close()
 	resp, data := e.do("POST", "/t", "x")
-	e.expectError(resp, data, apierr.Internal, "could not store")
+	// The access check reads the same database, so it is what fails first.
+	e.expectError(resp, data, apierr.Internal, "internal error")
 	if strings.Contains(string(data), "sql") || strings.Contains(string(data), "closed") {
 		t.Errorf("internal details leaked to the client: %s", data)
 	}
@@ -748,7 +768,7 @@ func TestLogsNameTheRouteButNeverTheTopicOrMessage(t *testing.T) {
 }
 
 func TestAPanicInAHandlerBecomesAnErrorResponse(t *testing.T) {
-	a := New(Deps{Hub: nil, Auth: auth.NewPolicy(auth.ReadWrite), Config: config.Default()})
+	a := New(Deps{Config: config.Default()})
 	h := a.recoverPanics(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { panic("boom") }))
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest("GET", "/", nil))
