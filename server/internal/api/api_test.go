@@ -29,6 +29,7 @@ import (
 	"github.com/vignesh-ramsh/flare/server/internal/message"
 	"github.com/vignesh-ramsh/flare/server/internal/realtime"
 	"github.com/vignesh-ramsh/flare/server/internal/store"
+	"github.com/vignesh-ramsh/flare/server/internal/theme"
 )
 
 // env is a complete server (real store, broker, hub and API) behind a test HTTP
@@ -91,7 +92,7 @@ func newEnv(t *testing.T, edit ...func(*config.Config)) *env {
 	})
 	logs := &syncBuffer{}
 	a := New(Deps{
-		Hub: hub, Auth: svc, Config: cfg,
+		Hub: hub, Auth: svc, Config: cfg, Themes: theme.NewService(st),
 		Log:            slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
 		Stream:         realtime.StreamOptions{Heartbeat: 40 * time.Millisecond},
 		WSPingInterval: 40 * time.Millisecond,
@@ -689,7 +690,7 @@ func TestServerInformation(t *testing.T) {
 	}
 	if cfg.APIVersion != 1 || cfg.Name != "Acme Alerts" || cfg.PrimaryColor != "#F97316" || cfg.AppURLScheme != "acme-alerts" ||
 		cfg.BaseURL != "https://flare.example.com" || cfg.Limits.MessageSize != 200 || cfg.Limits.CacheDuration != 86400 ||
-		cfg.Auth.DefaultAccess != "read-write" || strings.Join(cfg.Features, ",") != "publish,poll,sse,websocket,accounts" {
+		cfg.Auth.DefaultAccess != "read-write" || strings.Join(cfg.Features, ",") != "publish,poll,sse,websocket,accounts,themes" {
 		t.Errorf("config = %+v", cfg)
 	}
 	for _, secret := range []string{"sqlite", ".db", "listen"} {

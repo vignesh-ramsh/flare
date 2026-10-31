@@ -20,10 +20,14 @@ var features = []string{"publish", "poll", "sse", "websocket", "accounts"}
 
 // featuresOf adds to features what depends on how the server is set up.
 func (a *API) featuresOf() []string {
-	if a.Push == nil {
-		return features
+	out := append([]string{}, features...)
+	if a.Themes != nil {
+		out = append(out, "themes")
 	}
-	return append(append([]string{}, features...), "push")
+	if a.Push != nil {
+		out = append(out, "push")
+	}
+	return out
 }
 
 // index is GET /: a hint for someone who opened the server in a browser.

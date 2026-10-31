@@ -1,0 +1,289 @@
+{
+  "version": 1,
+  "description": "The colours a theme can set. Shared by the app, the brand tool, the server and the Admin UI; each keeps a copy and a test checks it against this file.",
+  "name_pattern": "^[A-Za-z0-9][A-Za-z0-9 _.-]{0,31}$",
+  "color_pattern": "^#[0-9A-Fa-f]{6}$",
+  "required_tokens": [
+    "primary"
+  ],
+  "minimum_contrast": 3.0,
+  "recommended_contrast": 4.5,
+  "groups": [
+    {
+      "id": "main",
+      "label": "Main colour"
+    },
+    {
+      "id": "secondary",
+      "label": "Secondary colour"
+    },
+    {
+      "id": "accent",
+      "label": "Accent colour"
+    },
+    {
+      "id": "error",
+      "label": "Errors and urgent messages"
+    },
+    {
+      "id": "surface",
+      "label": "Backgrounds and surfaces"
+    },
+    {
+      "id": "text",
+      "label": "Text"
+    },
+    {
+      "id": "lines",
+      "label": "Borders"
+    },
+    {
+      "id": "effects",
+      "label": "Overlays and effects"
+    }
+  ],
+  "tokens": [
+    {
+      "key": "primary",
+      "group": "main",
+      "label": "Primary",
+      "help": "Buttons, links, selected items and highlights"
+    },
+    {
+      "key": "on_primary",
+      "group": "main",
+      "label": "Text on primary",
+      "help": "Text and icons on a primary button"
+    },
+    {
+      "key": "primary_container",
+      "group": "main",
+      "label": "Primary container",
+      "help": "A softer fill of the main colour, for chips and selected rows"
+    },
+    {
+      "key": "on_primary_container",
+      "group": "main",
+      "label": "Text on primary container",
+      "help": "Text and icons on the primary container"
+    },
+    {
+      "key": "secondary",
+      "group": "secondary",
+      "label": "Secondary",
+      "help": "Less prominent buttons and controls"
+    },
+    {
+      "key": "on_secondary",
+      "group": "secondary",
+      "label": "Text on secondary",
+      "help": "Text and icons on the secondary colour"
+    },
+    {
+      "key": "secondary_container",
+      "group": "secondary",
+      "label": "Secondary container",
+      "help": "A softer fill of the secondary colour"
+    },
+    {
+      "key": "on_secondary_container",
+      "group": "secondary",
+      "label": "Text on secondary container",
+      "help": "Text and icons on the secondary container"
+    },
+    {
+      "key": "tertiary",
+      "group": "accent",
+      "label": "Accent",
+      "help": "A contrasting colour, used for high priority messages"
+    },
+    {
+      "key": "on_tertiary",
+      "group": "accent",
+      "label": "Text on accent",
+      "help": "Text and icons on the accent colour"
+    },
+    {
+      "key": "tertiary_container",
+      "group": "accent",
+      "label": "Accent container",
+      "help": "A softer fill of the accent colour, behind the High badge"
+    },
+    {
+      "key": "on_tertiary_container",
+      "group": "accent",
+      "label": "Text on accent container",
+      "help": "Text and icons on the accent container"
+    },
+    {
+      "key": "error",
+      "group": "error",
+      "label": "Error",
+      "help": "Errors and destructive actions"
+    },
+    {
+      "key": "on_error",
+      "group": "error",
+      "label": "Text on error",
+      "help": "Text and icons on the error colour"
+    },
+    {
+      "key": "error_container",
+      "group": "error",
+      "label": "Error container",
+      "help": "The fill behind error messages and the Urgent badge"
+    },
+    {
+      "key": "on_error_container",
+      "group": "error",
+      "label": "Text on error container",
+      "help": "Text and icons on the error container"
+    },
+    {
+      "key": "background",
+      "group": "surface",
+      "label": "Background",
+      "help": "The page behind everything"
+    },
+    {
+      "key": "surface",
+      "group": "surface",
+      "label": "Surface",
+      "help": "Panels and sheets on the page"
+    },
+    {
+      "key": "surface_container_lowest",
+      "group": "surface",
+      "label": "Surface, lowest layer",
+      "help": "The layer furthest from the text colour"
+    },
+    {
+      "key": "surface_container_low",
+      "group": "surface",
+      "label": "Surface, low layer",
+      "help": "Cards"
+    },
+    {
+      "key": "surface_container",
+      "group": "surface",
+      "label": "Surface, middle layer",
+      "help": "Navigation bars and the composer"
+    },
+    {
+      "key": "surface_container_high",
+      "group": "surface",
+      "label": "Surface, high layer",
+      "help": "Raised menus and dialogs"
+    },
+    {
+      "key": "surface_container_highest",
+      "group": "surface",
+      "label": "Surface, highest layer",
+      "help": "The strongest fill: chips and badges"
+    },
+    {
+      "key": "on_surface",
+      "group": "text",
+      "label": "Text",
+      "help": "Main text and icons"
+    },
+    {
+      "key": "on_surface_variant",
+      "group": "text",
+      "label": "Quiet text",
+      "help": "Secondary text, hints and captions"
+    },
+    {
+      "key": "border",
+      "group": "lines",
+      "label": "Border",
+      "help": "Outlines of fields and buttons"
+    },
+    {
+      "key": "border_subtle",
+      "group": "lines",
+      "label": "Subtle border",
+      "help": "Dividers and card outlines"
+    },
+    {
+      "key": "shadow",
+      "group": "effects",
+      "label": "Shadow",
+      "help": "The shadow under raised things"
+    },
+    {
+      "key": "scrim",
+      "group": "effects",
+      "label": "Scrim",
+      "help": "The dimming behind a dialog"
+    },
+    {
+      "key": "inverse_surface",
+      "group": "effects",
+      "label": "Inverse surface",
+      "help": "Snack bars: the opposite of the surface"
+    },
+    {
+      "key": "on_inverse_surface",
+      "group": "effects",
+      "label": "Text on inverse surface",
+      "help": "Text on a snack bar"
+    },
+    {
+      "key": "inverse_primary",
+      "group": "effects",
+      "label": "Inverse primary",
+      "help": "A link or button on a snack bar"
+    }
+  ],
+  "readable_pairs": [
+    {
+      "text": "on_surface",
+      "background": "surface"
+    },
+    {
+      "text": "on_surface",
+      "background": "background"
+    },
+    {
+      "text": "on_surface_variant",
+      "background": "surface"
+    },
+    {
+      "text": "on_primary",
+      "background": "primary"
+    },
+    {
+      "text": "on_primary_container",
+      "background": "primary_container"
+    },
+    {
+      "text": "on_secondary",
+      "background": "secondary"
+    },
+    {
+      "text": "on_secondary_container",
+      "background": "secondary_container"
+    },
+    {
+      "text": "on_tertiary",
+      "background": "tertiary"
+    },
+    {
+      "text": "on_tertiary_container",
+      "background": "tertiary_container"
+    },
+    {
+      "text": "on_error",
+      "background": "error"
+    },
+    {
+      "text": "on_error_container",
+      "background": "error_container"
+    },
+    {
+      "text": "on_inverse_surface",
+      "background": "inverse_surface"
+    }
+  ]
+}

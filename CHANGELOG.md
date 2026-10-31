@@ -101,4 +101,9 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   defaults), validated by `make brand`. The colours are listed in `api/theme-tokens.json`, which the app, the
   brand tool and the server check themselves against.
 - Fixed: a subscribe link opened on the first run could leave the user on the welcome page.
+- Server themes: a server holds up to 50 colour themes that its administrators add, change and delete
+  (`POST /v1/admin/themes`, `PUT` and `DELETE /v1/admin/themes/{name}`), and apps list publicly with
+  `GET /v1/themes` (with an `ETag`), next to a `themes` feature in `/v1/config`. Themes use the same unique
+  names and colours as the app's own, and the same rule that text must stay readable. `GET /v1/themes/schema`
+  describes the colours for an editor.
 

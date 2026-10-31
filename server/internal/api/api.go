@@ -16,6 +16,7 @@ import (
 	"github.com/vignesh-ramsh/flare/server/internal/config"
 	"github.com/vignesh-ramsh/flare/server/internal/push"
 	"github.com/vignesh-ramsh/flare/server/internal/realtime"
+	"github.com/vignesh-ramsh/flare/server/internal/theme"
 )
 
 // Deps are what the API needs to do its work.
@@ -24,7 +25,9 @@ type Deps struct {
 	Auth *auth.Service
 	// Push registers devices for push notifications. Nil means the server has
 	// none, and the device endpoints say so.
-	Push   *push.Service
+	Push *push.Service
+	// Themes are the themes the server offers its apps. Nil means it offers none.
+	Themes *theme.Service
 	Config config.Config
 	Log    *slog.Logger
 
@@ -74,6 +77,11 @@ func (a *API) routes() []route {
 		{"GET /v1/config", a.serverConfig},
 		{"POST /v1/messages", a.publishJSON},
 		{"GET /v1/messages/{id}", a.getMessage},
+		{"GET /v1/themes", a.listThemes},
+		{"GET /v1/themes/schema", a.themeSchema},
+		{"POST /v1/admin/themes", a.createTheme},
+		{"PUT /v1/admin/themes/{name}", a.replaceTheme},
+		{"DELETE /v1/admin/themes/{name}", a.deleteTheme},
 		{"POST /v1/devices", a.registerDevice},
 		{"PUT /v1/devices/{id}/subscriptions", a.followTopics},
 		{"DELETE /v1/devices/{id}", a.removeDevice},

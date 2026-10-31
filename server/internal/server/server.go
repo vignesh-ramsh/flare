@@ -20,6 +20,7 @@ import (
 	"github.com/vignesh-ramsh/flare/server/internal/push"
 	"github.com/vignesh-ramsh/flare/server/internal/realtime"
 	"github.com/vignesh-ramsh/flare/server/internal/store"
+	"github.com/vignesh-ramsh/flare/server/internal/theme"
 )
 
 // Server is a running Flare node.
@@ -86,6 +87,7 @@ func New(ctx context.Context, cfg config.Config, log *slog.Logger) (*Server, err
 		cfg: cfg, log: log, store: st, broker: br, hub: hub, dispatcher: dispatcher,
 		api: api.New(api.Deps{
 			Hub: hub, Config: cfg, Log: log, Shutdown: shutdown, Auth: authSvc, Push: pushSvc,
+			Themes: theme.NewService(st),
 		}),
 		shutdown: shutdown, endStreams: endStreams,
 		purgeEvery: time.Minute,

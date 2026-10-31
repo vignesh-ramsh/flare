@@ -103,6 +103,10 @@ tags:
     description: Register an app to be woken by push notifications, and fetch the message it was woken for.
   - name: Server
     description: Information about the server itself.
+  - name: Themes
+    description: The colour themes a server offers its apps.
+  - name: Admin
+    description: Managing the server. Needs a logged-in administrator.
 
 paths:
   /:
@@ -189,6 +193,135 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Message" }
+        default:
+          $ref: "#/components/responses/Error"
+
+  /v1/themes:
+    get:
+      tags: [Themes]
+      summary: The themes this server offers
+      description: |
+        Colour themes an admin added in the Admin UI. Apps show them next to the themes
+        they were built with, under the server's name, and the user chooses.
+
+        A theme is only colours, so, like `/v1/config`, this is public, even on a server
+        that keeps its topics private. Servers that offer themes list the feature
+        `themes` in `/v1/config`. The answer has an `ETag`, so an app that asks again on
+        every connection is told when nothing changed (304).
+      operationId: listThemes
+      security:
+        - {}
+      parameters:
+        - name: If-None-Match
+          in: header
+          schema: { type: string }
+      responses:
+        "200":
+          description: The themes, ordered by name.
+          headers:
+            ETag: { schema: { type: string } }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [themes]
+                properties:
+                  themes:
+                    type: array
+                    items: { $ref: "#/components/schemas/Theme" }
+        "304":
+          description: Nothing has changed since the `ETag` the app sent.
+        default:
+          $ref: "#/components/responses/Error"
+
+  /v1/themes/schema:
+    get:
+      tags: [Themes]
+      summary: The colours a theme can set, and the rules themes follow
+      description: |
+        The same description as `api/theme-tokens.json` in the repository, which the app, the
+        brand tool and the Admin UI share: each colour with its group, label and what it is
+        for, the pairs of text and background that must stay readable, and the contrast and
+        naming rules. An editor builds its form from it.
+      operationId: getThemeSchema
+      security:
+        - {}
+      responses:
+        "200":
+          description: The description.
+          content:
+            application/json:
+              schema: { type: object }
+
+  /v1/admin/themes:
+    post:
+      tags: [Admin, Themes]
+      summary: Add a theme
+      description: |
+        Needs an administrator. The name must be new (names are compared without regard to
+        case), and a server holds at most 50 themes. Colours the theme leaves out are derived
+        by the app from its `primary`, so `primary` is the only colour required; the
+        theme is refused if a text colour it sets has less than 3:1 contrast with the
+        background it sets for it.
+      operationId: createTheme
+      security:
+        - bearerAuth: []
+        - basicAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Theme" }
+      responses:
+        "201":
+          description: Added.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Theme" }
+        default:
+          $ref: "#/components/responses/Error"
+
+  /v1/admin/themes/{name}:
+    put:
+      tags: [Admin, Themes]
+      summary: Replace a theme
+      description: |
+        Needs an administrator. The body replaces the whole theme. The name in the body
+        must be the one in the path, apart from capital letters: a theme cannot be renamed.
+      operationId: replaceTheme
+      security:
+        - bearerAuth: []
+        - basicAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ThemeName"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Theme" }
+      responses:
+        "200":
+          description: Replaced.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Theme" }
+        default:
+          $ref: "#/components/responses/Error"
+    delete:
+      tags: [Admin, Themes]
+      summary: Delete a theme
+      description: |
+        Needs an administrator. Apps that had chosen the theme fall back to following the
+        system's light or dark the next time they ask the server for its themes.
+      operationId: deleteTheme
+      security:
+        - bearerAuth: []
+        - basicAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ThemeName"
+      responses:
+        "204":
+          description: Deleted.
         default:
           $ref: "#/components/responses/Error"
 
@@ -544,6 +677,12 @@ components:
       description: The secret returned when the device was registered. It is the device's own credential, separate from any user's token.
 
   parameters:
+    ThemeName:
+      name: name
+      in: path
+      required: true
+      description: The theme's name (not case-sensitive), URL-encoded if it has spaces.
+      schema: { type: string }
     DeviceId:
       name: id
       in: path
@@ -761,6 +900,32 @@ components:
               access: { type: string, enum: [read-write, read-only, write-only, deny-all] }
               scope: { type: string, enum: [user, everyone] }
 
+    Theme:
+      type: object
+      description: |
+        A unique name, light or dark, and the colours the theme sets. The colours a theme
+        can set, with what each is for, are listed by `GET /v1/themes/schema`. Colours left
+        out are derived by the app from `primary`.
+      required: [name, brightness, colors]
+      properties:
+        name:
+          type: string
+          pattern: "^[A-Za-z0-9][A-Za-z0-9 _.-]{0,31}$"
+          description: Unique on the server, whatever the case.
+          examples: [Midnight]
+        brightness: { type: string, enum: [light, dark] }
+        colors:
+          type: object
+          description: Colour name to `#RRGGBB`. `primary` is required.
+          required: [primary]
+          properties:
+            primary: { type: string, pattern: "^#[0-9A-Fa-f]{6}$", description: "The one colour every theme sets; the colours it leaves out are derived from it." }
+          propertyNames: { pattern: "^[a-z]+(_[a-z]+)*$" }
+          additionalProperties: { type: string, pattern: "^#[0-9A-Fa-f]{6}$" }
+          examples: [{ primary: "#8AB4F8", background: "#0B1220", surface: "#111A2B", on_surface: "#E6EDF7" }]
+        created: { type: integer, readOnly: true, description: "When it was added, in Unix seconds." }
+        updated: { type: integer, readOnly: true, description: "When it was last changed, in Unix seconds." }
+
     ServerConfig:
       type: object
       required: [api_version, name, primary_color, app_url_scheme, features, limits, auth]
@@ -773,8 +938,8 @@ components:
         features:
           type: array
           items: { type: string }
-          description: What this server can do. Check for a feature instead of comparing version numbers.
-          examples: [[publish, poll, sse, websocket]]
+          description: What this server can do. Check for a feature instead of comparing version numbers. `themes` means `GET /v1/themes` works.
+          examples: [[publish, poll, sse, websocket, themes]]
         limits:
           type: object
           required: [message_size, cache_duration]

@@ -16,11 +16,13 @@ const (
 	NotFound           = 40401 // there is nothing here
 	AlreadySubscribed  = 40901 // the WebSocket is already subscribed to this topic
 	TokenLimit         = 40902 // the user already has as many tokens as are allowed
+	AlreadyExists      = 40903 // something with this name is already there
 	TooLarge           = 41301 // the message is over the size limit
 	TooMany            = 42901 // a limit on the number of subscriptions was reached
 	Throttled          = 42902 // too many failed login attempts from this address
 	TooManyDevices     = 42903 // the owner already has as many push devices as are allowed
 	RateLimited        = 42904 // too many requests from this client or for this handle
+	LimitReached       = 42905 // the server already holds as many of these as it may
 	Undeliverable      = 42201 // a push relay could not deliver the notification, and retrying won't help
 	Internal           = 50001 // something went wrong on the server
 	Lagged             = 50002 // a subscription was dropped because the client fell behind
