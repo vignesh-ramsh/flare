@@ -84,6 +84,10 @@ abstract final class Brand {
   static const String androidApplicationId = ${dartString(s.androidId)};
   static const String appleBundleId = ${dartString(s.appleId)};
 
+  /// Names this app to Windows (its AppUserModelID), so that its notifications
+  /// belong to it. Notifications also need a GUID: derive one from this.
+  static const String windowsIdentity = ${dartString(s.windowsId)};
+
   /// App Group shared by the iOS app and its notification extension.
   static const String appleAppGroup = ${dartString(s.appleAppGroup)};
 

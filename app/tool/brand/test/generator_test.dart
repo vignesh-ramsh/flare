@@ -294,6 +294,10 @@ void main() {
           ),
         ),
       );
+      expect(
+        text(acme, 'lib/brand/brand.g.dart'),
+        contains("static const String windowsIdentity = '"),
+      );
     });
   });
 
