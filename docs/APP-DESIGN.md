@@ -133,6 +133,9 @@ fails the build if one does.
 
 ## Not yet decided
 
+- Plain `http://` servers on phones. Today Android allows them in debug builds only and iOS only on the local
+  network, so a self-hosted server needs https (or a local address on iOS) until this is decided. Desktop apps
+  allow any address.
 - A tablet-specific layout for very wide Medium windows (a foldable half-open) beyond the rules above.
 - Whether Inbox should group by day or by topic by default.
 - Reply from a notification on every platform that allows it, and what a failed reply looks like.
@@ -167,8 +170,11 @@ What exists, so the page and the code agree.
 - **Target size** follows the platform (40 dp on Windows, macOS and Linux, 48 dp elsewhere), not whether a
   mouse is attached.
 - **Data location:** the database is in the application-support folder, not the user's Documents.
-- **Not wired yet:** Android, iOS, macOS and Windows still use Flutter's default name and identifiers; only
-  Linux is wired to the brand output (see [app/README.md](../app/README.md)).
+- **Native projects:** every platform takes its name and identifier from the brand output; CI builds each
+  one and checks the result (see [app/README.md](../app/README.md)). The URL scheme is defined for
+  Android but no platform registers it yet; that comes with deep links in step 3. macOS needed the
+  `network.client` entitlement for the sandboxed app to reach any server, and Android's main manifest
+  needed the INTERNET permission, which release builds lacked.
 
 ## As built: the connection
 
