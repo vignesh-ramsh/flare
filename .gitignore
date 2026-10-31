@@ -21,6 +21,7 @@
 # or commit these. This list must match ownedFiles and ownedDirectories in
 # app/tool/brand/lib/src/generator.dart; a test checks that it does.
 /app/lib/brand/brand.g.dart
+/app/lib/brand/themes.g.dart
 /app/android/brand.properties
 /app/android/app/src/brand/
 /app/android/app/google-services.json

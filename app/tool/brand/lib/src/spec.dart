@@ -46,6 +46,7 @@ final class BrandSpec {
     required this.privacyPolicy,
     required this.sourceCode,
     required this.firebaseAndroidConfig,
+    this.themesFile = '',
   });
 
   final String name;
@@ -79,6 +80,9 @@ final class BrandSpec {
 
   /// Path relative to the brand folder, or empty.
   final String firebaseAndroidConfig;
+
+  /// The themes file, relative to the brand folder, or empty for none.
+  final String themesFile;
 
   /// Executable name on Windows and Linux: the last part of the Linux ID.
   String get binaryName => linuxId.split('.').last.toLowerCase();
@@ -416,6 +420,7 @@ BrandSpec? parseBrandYaml(String text, Report report) {
   final symbolFile = look.string('symbol');
   final iconBackgroundRaw = look.string('icon_background');
   final primaryColorRaw = look.string('primary_color');
+  final themesFile = look.string('themes', required: false);
   look.finish();
 
   Rgb? colour(String? raw, String where) {
@@ -517,6 +522,7 @@ BrandSpec? parseBrandYaml(String text, Report report) {
     privacyPolicy: privacyPolicy!,
     sourceCode: sourceCode!,
     firebaseAndroidConfig: firebaseAndroid!,
+    themesFile: themesFile ?? '',
   );
 }
 

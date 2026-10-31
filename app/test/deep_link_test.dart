@@ -1,11 +1,15 @@
 import 'package:app/app/app.dart';
+import 'package:app/app/router.dart';
+import 'package:app/features/thread/thread_pane.dart';
 import 'package:app/app/deep_link.dart';
 import 'package:app/brand/brand.g.dart';
+import 'package:app/core/db/database.dart';
 import 'package:app/data/providers.dart';
 import 'package:app/features/add/add_screen.dart';
 import 'package:app/features/welcome/welcome_pages.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:go_router/go_router.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'helpers.dart';
@@ -202,6 +206,94 @@ void main() {
       await pumpApp(tester, db, width: 390, useAppRouter: true);
       expect(find.byType(WelcomePage), findsOneWidget);
     }, seeded: false);
+  });
+
+  group('the first-run gate learns of a server a moment late', () {
+    // The gate follows the database, so it can still say "no server yet" for an instant after
+    // one was added. These tests hold it there, on a database that already has servers.
+    Future<(FirstRunGate, GoRouter)> staleGate(
+      WidgetTester tester,
+      AppDatabase db,
+    ) async {
+      final gate = FirstRunGate()..update(true);
+      final router = createRouter(firstRun: gate);
+      addTearDown(() {
+        router.dispose();
+        gate.dispose();
+      });
+      await pumpApp(tester, db, width: 390, router: router);
+      return (gate, router);
+    }
+
+    testApp(
+      'a topic reached just before the gate clears is still where the user ends up',
+      (tester, db) async {
+        final (gate, router) = await staleGate(tester, db);
+        expect(find.byType(WelcomePage), findsOneWidget);
+
+        router.go('/topic/example.com/alerts-db');
+        await settle(tester);
+        expect(
+          find.byType(WelcomePage),
+          findsOneWidget,
+          reason: 'the gate has not cleared yet',
+        );
+
+        gate.update(false);
+        await settle(tester);
+        expect(find.byType(WelcomePage), findsNothing);
+        expect(find.byType(ThreadPane), findsOneWidget);
+      },
+    );
+
+    testApp('with nowhere in mind, the topics are where the user ends up', (
+      tester,
+      db,
+    ) async {
+      final (gate, _) = await staleGate(tester, db);
+      gate.update(false);
+      await settle(tester);
+      expect(find.byType(WelcomePage), findsNothing);
+      expect(find.text('alerts-db'), findsWidgets);
+    });
+
+    testApp(
+      'the later pages of the first-run flow are not taken away when the gate clears',
+      (tester, db) async {
+        final (gate, router) = await staleGate(tester, db);
+        router.go('/welcome/account?server=1');
+        await settle(tester);
+        final before = find.byType(Scaffold).evaluate().length;
+        expect(before, greaterThan(0));
+
+        gate.update(false);
+        await settle(tester);
+        expect(
+          find.text('Sign in to example.com'),
+          findsWidgets,
+          reason: 'still on the sign-in step',
+        );
+      },
+    );
+
+    testApp('it is used once: an old place is not resumed later', (
+      tester,
+      db,
+    ) async {
+      final (gate, router) = await staleGate(tester, db);
+      router.go('/topic/example.com/alerts-db');
+      await settle(tester);
+      gate.update(false);
+      await settle(tester);
+
+      gate.update(true);
+      await settle(tester);
+      router.go('/inbox');
+      await settle(tester);
+      gate.update(false);
+      await settle(tester);
+      expect(find.byType(ThreadPane), findsNothing);
+    });
   });
 
   group('given on the command line', () {

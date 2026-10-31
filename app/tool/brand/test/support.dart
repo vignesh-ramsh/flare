@@ -49,8 +49,9 @@ Directory copyBrand(
   List<String Function(String)> edits = const [],
 }) {
   final dir = tempDir();
-  for (final name in ['brand.yaml', 'icon.png', 'symbol.png']) {
-    File(p.join(source.path, name)).copySync(p.join(dir.path, name));
+  for (final name in ['brand.yaml', 'icon.png', 'symbol.png', 'themes.yaml']) {
+    final file = File(p.join(source.path, name));
+    if (file.existsSync()) file.copySync(p.join(dir.path, name));
   }
   final yaml = File(p.join(dir.path, 'brand.yaml'));
   yaml.writeAsStringSync(

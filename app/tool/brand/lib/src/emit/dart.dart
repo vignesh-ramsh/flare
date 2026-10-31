@@ -1,6 +1,7 @@
 import '../loader.dart';
 import '../outputs.dart';
 import '../spec.dart';
+import '../themes.dart';
 
 /// A Dart single-quoted string literal for [value].
 String dartString(String value) {
@@ -96,5 +97,35 @@ abstract final class Brand {
   static const String upstreamName = ${dartString(upstreamName)};
   static const String upstreamUrl = ${dartString(upstreamUrl)};
 }
+''');
+}
+
+String _themeLiteral(BrandTheme t) {
+  final colors = t.colors.entries
+      .map((e) => "      ${dartString(e.key)}: ${dartString(e.value)},")
+      .join('\n');
+  return "  {\n    'name': ${dartString(t.name)},\n    'brightness': ${dartString(t.brightness)},\n    'colors': {\n$colors\n    },\n  },";
+}
+
+/// `lib/brand/themes.g.dart`: the themes built into the app, as the brand's themes file lists
+/// them. The app reads them as JSON; nothing in this file is written by hand.
+void emitThemes(Brand brand, Outputs out) {
+  final themes = brand.themes;
+  out.text('lib/brand/themes.g.dart', '''
+// $generatedNotice
+// ignore_for_file: type=lint
+
+/// The themes built into this app, from the brand folder's themes file. Each has a unique
+/// name, `light` or `dark`, and the colours it sets as `#RRGGBB`.
+const List<Map<String, Object>> brandThemes = <Map<String, Object>>[
+${themes.themes.map(_themeLiteral).join('\n')}
+];
+
+/// The theme used while following the system's light setting, or empty to use the colours
+/// derived from the brand colour.
+const String brandDefaultLightTheme = ${dartString(themes.defaultLight)};
+
+/// The theme used while following the system's dark setting, or empty.
+const String brandDefaultDarkTheme = ${dartString(themes.defaultDark)};
 ''');
 }

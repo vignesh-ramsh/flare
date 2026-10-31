@@ -1,0 +1,96 @@
+# Acme's themes. This brand sets the two the app uses while following the system's light or dark
+# setting, so Acme users see Acme's own palette from the first launch. The format is explained in
+# the official brand's themes.yaml.
+schema: 1
+
+defaults:
+  light: Acme Light
+  dark: Acme Dark
+
+themes:
+  - name: Acme Light
+    brightness: light
+    colors:
+      # Main colour
+      primary: "#1D4ED8"
+      on_primary: "#FFFFFF"
+      primary_container: "#D6DFF8"
+      on_primary_container: "#0F172A"
+      # Secondary colour
+      secondary: "#475569"
+      on_secondary: "#FFFFFF"
+      secondary_container: "#DEE0E4"
+      on_secondary_container: "#0F172A"
+      # Accent colour
+      tertiary: "#B45309"
+      on_tertiary: "#FFFFFF"
+      tertiary_container: "#EED9C9"
+      on_tertiary_container: "#0F172A"
+      # Errors and urgent messages
+      error: "#B3261E"
+      on_error: "#FFFFFF"
+      error_container: "#F9DEDC"
+      on_error_container: "#0F172A"
+      # Backgrounds and surfaces
+      background: "#F3F6FC"
+      surface: "#FFFFFF"
+      surface_container_lowest: "#FFFFFF"
+      surface_container_low: "#F8F8F9"
+      surface_container: "#F1F1F2"
+      surface_container_high: "#E9EAEC"
+      surface_container_highest: "#E2E3E5"
+      # Text
+      on_surface: "#0F172A"
+      on_surface_variant: "#444A59"
+      # Borders
+      border: "#7B7F8A"
+      border_subtle: "#D4D5D9"
+      # Overlays and effects
+      shadow: "#000000"
+      scrim: "#000000"
+      inverse_surface: "#0F172A"
+      on_inverse_surface: "#FFFFFF"
+      inverse_primary: "#8EA6EC"
+  - name: Acme Dark
+    brightness: dark
+    colors:
+      # Main colour
+      primary: "#93B4FF"
+      on_primary: "#000000"
+      primary_container: "#35456C"
+      on_primary_container: "#E8EEFC"
+      # Secondary colour
+      secondary: "#A5B4CC"
+      on_secondary: "#000000"
+      secondary_container: "#3A455E"
+      on_secondary_container: "#E8EEFC"
+      # Accent colour
+      tertiary: "#FCD34D"
+      on_tertiary: "#000000"
+      tertiary_container: "#5C553B"
+      on_tertiary_container: "#E8EEFC"
+      # Errors and urgent messages
+      error: "#F2B8B5"
+      on_error: "#000000"
+      error_container: "#8C1D18"
+      on_error_container: "#E8EEFC"
+      # Backgrounds and surfaces
+      background: "#0A1020"
+      surface: "#111A33"
+      surface_container_lowest: "#080C17"
+      surface_container_low: "#172039"
+      surface_container: "#1E273F"
+      surface_container_high: "#242D45"
+      surface_container_highest: "#2B334B"
+      # Text
+      on_surface: "#E8EEFC"
+      on_surface_variant: "#B9BFD0"
+      # Borders
+      border: "#878FA2"
+      border_subtle: "#384057"
+      # Overlays and effects
+      shadow: "#000000"
+      scrim: "#000000"
+      inverse_surface: "#E8EEFC"
+      on_inverse_surface: "#111A33"
+      inverse_primary: "#CEDDFF"

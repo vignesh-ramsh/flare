@@ -252,6 +252,8 @@ void main() {
   group('what the server says', () {
     testApp('an open server: the name is the secret', (tester, db) async {
       await open(tester, db);
+      // Not what this test is about: the form's own look-up of the server it starts with.
+      asked.clear();
       await tester.enterText(_server, 'https://open.example.org');
       await afterLookup(tester);
 
@@ -331,6 +333,8 @@ void main() {
       db,
     ) async {
       await open(tester, db);
+      // Not what this test is about: the form's own look-up of the server it starts with.
+      asked.clear();
       for (final text in [
         'h',
         'ht',
@@ -351,6 +355,8 @@ void main() {
       db,
     ) async {
       await open(tester, db);
+      // Not what this test is about: the form's own look-up of the server it starts with.
+      asked.clear();
       await tester.enterText(_server, 'not a server');
       await afterLookup(tester);
       expect(asked, isEmpty);
@@ -377,6 +383,8 @@ void main() {
         answer = (uri) =>
             uri.host == 'slow.example.org' ? slow.future : _config('deny-all');
         await open(tester, db);
+        // Not what this test is about: the form's own look-up of the server it starts with.
+        asked.clear();
 
         await tester.enterText(_server, 'https://slow.example.org');
         await tester.pump(const Duration(milliseconds: 700));

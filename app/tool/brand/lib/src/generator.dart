@@ -25,6 +25,7 @@ const ownedDirectories = [
 /// does not produce (such as `google-services.json`) is deleted.
 const ownedFiles = [
   'lib/brand/brand.g.dart',
+  'lib/brand/themes.g.dart',
   'android/brand.properties',
   'android/app/google-services.json',
   'ios/Flutter/Brand.xcconfig',
@@ -71,6 +72,7 @@ Outputs renderBrand(Brand brand) {
   final out = Outputs();
   final icons = IconFactory(brand);
   emitDart(brand, out);
+  emitThemes(brand, out);
   emitAndroid(brand, icons, out);
   emitApple(brand, icons, out);
   final ico = emitWindows(brand, icons, out);

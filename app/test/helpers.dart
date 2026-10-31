@@ -119,6 +119,9 @@ Future<void> pumpApp(
 
   /// Use the app's own router, with the first-run pages, instead of one that starts at [location].
   bool useAppRouter = false,
+
+  /// A router the test made itself, instead of one that starts at [location].
+  GoRouter? router,
 }) async {
   tester.view.physicalSize = Size(width, height);
   tester.view.devicePixelRatio = 1;
@@ -129,7 +132,7 @@ Future<void> pumpApp(
     tester.platformDispatcher.clearAllTestValues();
   });
 
-  final router = createRouter(initialLocation: location);
+  router ??= createRouter(initialLocation: location);
   await tester.pumpWidget(
     ProviderScope(
       overrides: [

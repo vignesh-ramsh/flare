@@ -7,6 +7,7 @@ import '../data/subscribe_link.dart';
 import '../features/add/add_screen.dart';
 import '../features/inbox/inbox_screen.dart';
 import '../features/servers/server_modals.dart';
+import '../features/settings/appearance_screen.dart';
 import '../features/settings/notifications_screen.dart';
 import '../features/settings/server_detail_screen.dart';
 import '../features/settings/about_screen.dart';
@@ -37,11 +38,22 @@ GoRouter createRouter({String initialLocation = '/', FirstRunGate? firstRun}) {
       }
       // Until a server is chosen, the first-run pages are all there is. A subscribe link names
       // its server, so it can be answered at once.
-      if (firstRun != null &&
-          firstRun.needed &&
-          !state.matchedLocation.startsWith('/welcome') &&
-          !state.matchedLocation.startsWith('/subscribe')) {
-        return '/welcome';
+      if (firstRun != null) {
+        final path = state.matchedLocation;
+        if (firstRun.needed) {
+          if (!path.startsWith('/welcome') && !path.startsWith('/subscribe')) {
+            // Remember where the user was going: the gate learns of a new server a moment after
+            // it is added, so a link that subscribes can be sent here just before it clears.
+            firstRun.blocked = state.uri.toString();
+            return '/welcome';
+          }
+        } else if (path == '/welcome') {
+          // The first page is never needed once there is a server: carry on to where the user
+          // was going, or the topics.
+          final resume = firstRun.blocked;
+          firstRun.blocked = null;
+          return resume ?? '/';
+        }
       }
       return null;
     },
@@ -104,6 +116,10 @@ GoRouter createRouter({String initialLocation = '/', FirstRunGate? firstRun}) {
               GoRoute(
                 path: 'notifications',
                 builder: (context, state) => const NotificationsScreen(),
+              ),
+              GoRoute(
+                path: 'appearance',
+                builder: (context, state) => const AppearanceScreen(),
               ),
               GoRoute(
                 path: 'about',
@@ -184,6 +200,10 @@ GoRouter createRouter({String initialLocation = '/', FirstRunGate? firstRun}) {
 /// Says whether the first-run pages must be shown: while there is no server to follow.
 class FirstRunGate extends ChangeNotifier {
   bool _needed = false;
+
+  /// Where the user was going when the first-run pages stopped them, to go there when there is
+  /// a server.
+  String? blocked;
 
   bool get needed => _needed;
 

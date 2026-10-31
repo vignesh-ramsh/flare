@@ -334,3 +334,42 @@ woken by the system's push service instead (not built yet); none of this runs th
   system to forward it to the running instance, which is a native change to each runner), registering the scheme on
   macOS (nothing forwards the link to Dart there yet) and on Windows (the installer's job), universal and app
   links, scanning a QR code with the camera, and a message's actions.
+
+## As built: themes
+
+Users choose how the app looks in **Settings > Appearance**: follow the system's light or dark, or pick a
+theme. A theme is a **unique name**, light or dark, and the colours it sets (background, surface, border,
+text, and so on: 32 in all, listed with what each is for in [`api/theme-tokens.json`](../api/theme-tokens.json)).
+
+- **Where themes come from.** The brand folder's `themes.yaml` (the publisher of a build decides which themes
+  it ships, with no source edited: see [brand/README.md](../brand/README.md#themesyaml)), and, in a later step,
+  the servers the user has (a server's admin adds them at runtime). Both use the same format. In Appearance
+  they are listed apart: "Themes in this app", then "Themes from `<server>`". The same name from two places
+  stays two themes.
+- **Only `primary` is required.** Colours a theme leaves out are derived from it: Material 3's palette for
+  that primary in the theme's brightness, except text on a colour the theme did set (black or white,
+  whichever reads better, so a yellow primary does not get white text) and the layers of surface, which step
+  from the surface the theme chose. The themes shipped in this repository list every colour.
+- **Text must stay readable.** Twelve pairs (text on surface, on primary, on error and so on) must have a
+  WCAG contrast of at least 3:1, or the theme is never offered: a theme nobody can read could not be
+  switched away from. The brand tool checks the pairs a theme sets itself; the app checks the result of
+  deriving the rest, which is what also protects against a server's themes. A sweep of single-colour themes
+  over every hue, both brightnesses, and white, black and grey, stays above the bar.
+- **A chosen theme sets the brightness**, whatever the device is set to. Following the system uses the brand's
+  own light and dark themes if `themes.yaml` names them under `defaults`, otherwise colours derived from the
+  brand colour as before. The unread badge and the logo tile keep the brand colour in the default theme and use
+  the chosen theme's primary otherwise, so they always belong to the palette.
+- **The choice is kept** in the app's settings table (`appearance.theme`: `builtin:<name>` or
+  `server:<host>:<name>`, the name in lower case). If a chosen theme goes away (a server stops offering it)
+  the app falls back to following the system.
+- **One list, three copies.** The names of the colours, the pairs, the contrast limit and the name rule are in
+  `api/theme-tokens.json`. The app, the brand tool and the server each keep a copy in code, and each has a
+  test that fails if it drifts from the file.
+- **Found while building it:** a bright primary with Material's default "on primary" gave unreadable text
+  (hence the derivation above); and without value equality on the platform tokens every rebuild of the same
+  theme animated "to" itself for 200 ms. Following a subscribe link on the first run could also strand the user
+  on the welcome page when the first-run gate learned of the new server a moment late: it now remembers where
+  the user was going and resumes it.
+- **Not built yet:** themes from servers (the app downloading and caching them), the Admin UI that adds them,
+  and picking colours in the app.
+

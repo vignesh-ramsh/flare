@@ -9,6 +9,7 @@ import 'package:yaml/yaml.dart';
 import 'image_io.dart';
 import 'raster.dart';
 import 'spec.dart';
+import 'themes.dart';
 
 /// Size every icon is produced from.
 const masterSize = 1024;
@@ -20,6 +21,7 @@ final class Brand {
     required this.icon,
     required this.symbol,
     this.googleServices,
+    this.themes = const BrandThemes(),
   });
 
   final BrandSpec spec;
@@ -32,6 +34,9 @@ final class Brand {
 
   /// Contents of `google-services.json`, if the brand has one.
   final Uint8List? googleServices;
+
+  /// The themes the app is built with, and which are the defaults.
+  final BrandThemes themes;
 }
 
 /// Loads and validates the brand folder [dir]. Returns null if there are
@@ -57,6 +62,7 @@ Brand? loadBrand(
   final icon = _loadIcon(dir, spec, report);
   final symbol = _loadSymbol(dir, spec, report);
   final googleServices = _loadGoogleServices(dir, spec, report);
+  final themes = _loadThemes(dir, spec, report);
 
   if (release) _checkRelease(dir, spec, report, upstream);
 
@@ -66,6 +72,19 @@ Brand? loadBrand(
     icon: icon,
     symbol: symbol,
     googleServices: googleServices,
+    themes: themes ?? const BrandThemes(),
+  );
+}
+
+BrandThemes? _loadThemes(Directory dir, BrandSpec spec, Report report) {
+  if (spec.themesFile.isEmpty) return const BrandThemes();
+  const where = 'look.themes';
+  final file = _resolve(dir, spec.themesFile, where, report);
+  if (file == null) return null;
+  return parseThemesYaml(
+    file.readAsStringSync(),
+    report,
+    where: spec.themesFile,
   );
 }
 

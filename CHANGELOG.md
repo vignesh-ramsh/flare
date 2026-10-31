@@ -94,3 +94,11 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Fixed: the notification plugin's failure without a D-Bus session bus was left as an unhandled error; CI
   failures of the desktop notification commit (the tray plugin's native build in the test job, Android core
   library desugaring, and the integration target running the dunst test).
+- Themes: Settings > Appearance lets users follow the system or choose a theme. A theme is a unique name,
+  light or dark, and any of 32 colours (background, surface, border, text and so on); colours left out are
+  derived from its primary, and a theme whose text could not be read is never offered. The brand folder's new
+  `themes.yaml` lists the themes a build ships (the official brand has five, the Acme example two and its own
+  defaults), validated by `make brand`. The colours are listed in `api/theme-tokens.json`, which the app, the
+  brand tool and the server check themselves against.
+- Fixed: a subscribe link opened on the first run could leave the user on the welcome page.
+

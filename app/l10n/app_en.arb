@@ -235,5 +235,18 @@
   "@addNoteClosed": { "placeholders": { "server": { "type": "String" } } },
   "addNoteOffline": "You can still subscribe; messages arrive once the server answers.",
   "addLockedMismatch": "This app only works with {server}, so it cannot subscribe to a topic on another server.",
-  "@addLockedMismatch": { "placeholders": { "server": { "type": "String" } } }
+  "@addLockedMismatch": { "placeholders": { "server": { "type": "String" } } },
+
+  "settingsAppearance": "Appearance",
+  "appearanceTitle": "Appearance",
+  "appearanceSystem": "Follow the system",
+  "appearanceSystemHelp": "Light or dark, as your device is set.",
+  "appearanceBuiltIn": "Themes in this app",
+  "appearanceFromServer": "Themes from {server}",
+  "@appearanceFromServer": { "placeholders": { "server": { "type": "String" } } },
+  "appearanceLight": "Light",
+  "appearanceDark": "Dark",
+  "appearanceThemeLabel": "{name}, {kind}",
+  "@appearanceThemeLabel": { "placeholders": { "name": { "type": "String" }, "kind": { "type": "String" } } },
+  "appearanceNoMore": "Servers you use can offer more themes."
 }

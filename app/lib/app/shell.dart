@@ -136,10 +136,12 @@ class _DestinationIcon extends ConsumerWidget {
               topics.fold<int>(0, (sum, t) => sum + (t.muted ? 0 : t.unread)),
           orElse: () => 0,
         );
+    final accent =
+        Theme.of(context).extension<PlatformTokens>()?.accent ?? brandColor;
     return Badge(
       isLabelVisible: unread > 0,
-      backgroundColor: brandColor,
-      textColor: onColor(brandColor),
+      backgroundColor: accent,
+      textColor: onColor(accent),
       label: Text(unread > 99 ? '99+' : '$unread'),
       child: icon,
     );

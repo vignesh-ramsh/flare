@@ -155,7 +155,7 @@ void main() {
     test('.. cannot escape the brand folder', () {
       final outer = tempDir();
       final dir = Directory(p.join(outer.path, 'brand'))..createSync();
-      for (final name in ['brand.yaml', 'symbol.png']) {
+      for (final name in ['brand.yaml', 'symbol.png', 'themes.yaml']) {
         File(p.join(flareBrand.path, name)).copySync(p.join(dir.path, name));
       }
       File(

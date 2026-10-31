@@ -7,7 +7,7 @@ import '../brand/brand.g.dart';
 import '../data/providers.dart';
 import '../l10n/app_localizations.dart';
 import 'router.dart';
-import 'theme.dart';
+import 'themes/theme_providers.dart';
 
 /// Where the app opens. A desktop app started with a subscribe link opens its form; otherwise
 /// the topics.
@@ -37,11 +37,13 @@ class App extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final appTheme = ref.watch(appThemeProvider);
     return MaterialApp.router(
       onGenerateTitle: (context) => Brand.name,
       routerConfig: ref.watch(routerProvider),
-      theme: buildTheme(Brightness.light),
-      darkTheme: buildTheme(Brightness.dark),
+      theme: appTheme.light,
+      darkTheme: appTheme.dark,
+      themeMode: appTheme.mode,
       localizationsDelegates: const [
         AppLocalizations.delegate,
         GlobalMaterialLocalizations.delegate,

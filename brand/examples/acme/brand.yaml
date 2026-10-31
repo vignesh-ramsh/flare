@@ -22,6 +22,7 @@ look:
   symbol: symbol.png
   icon_background: "#1D4ED8"
   primary_color: "#2563EB"
+  themes: themes.yaml
 
 defaults:
   server_url: https://alerts.acme.example   # an internal build: locked to the company's own server

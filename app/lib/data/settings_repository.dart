@@ -48,6 +48,7 @@ const _soundKey = 'notifications.sound';
 const _contentKey = 'notifications.showContent';
 const _pausedKey = 'notifications.pausedUntil';
 const _closeToTrayKey = 'window.closeToTray';
+const _themeKey = 'appearance.theme';
 
 class AppSettingsRepository {
   AppSettingsRepository(this._db);
@@ -71,6 +72,24 @@ class AppSettingsRepository {
           _db.appSettings,
         )..where((s) => s.key.equals(_pausedKey))).go()
       : _set(_pausedKey, '${time.millisecondsSinceEpoch}');
+
+  /// Which theme the user chose, as [ThemeRef.id], or null to follow the system's light or dark.
+  Stream<String?> watchTheme() => _db
+      .select(_db.appSettings)
+      .watch()
+      .map(
+        (rows) => rows
+            .where((r) => r.key == _themeKey)
+            .map((r) => r.value)
+            .firstOrNull,
+      );
+
+  /// Chooses a theme by its id, or follows the system when [id] is null.
+  Future<void> setTheme(String? id) => id == null
+      ? (_db.delete(
+          _db.appSettings,
+        )..where((s) => s.key.equals(_themeKey))).go()
+      : _set(_themeKey, id);
 
   Future<void> _set(String key, String value) => _db
       .into(_db.appSettings)

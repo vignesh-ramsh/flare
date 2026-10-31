@@ -1,0 +1,236 @@
+# The themes built into the app: what users choose from in Settings > Appearance.
+#
+# Each theme has a unique name (1-32 letters, digits, spaces, dots, dashes or underscores; "Midnight"
+# and "midnight" count as the same name), is either light or dark, and lists the colours it sets as
+# "#RRGGBB" (in quotes). Only `primary` is required: every colour a theme leaves out is derived from
+# its primary, so the smallest theme is a name, a brightness and one colour. The themes below list
+# every colour, as a reference. The colours and what each is for are in api/theme-tokens.json.
+#
+# Text must stay readable on what it sits on: `make brand` refuses a theme whose text colour has
+# less than 3:1 contrast with its background (WCAG asks 4.5:1 for ordinary text; the themes below
+# have at least that). A server can offer more themes at runtime, from its Admin UI.
+#
+# `defaults` names the themes to use while the user follows the system's light or dark setting.
+# Leave them empty to use the colours derived from `look.primary_color` in brand.yaml.
+schema: 1
+
+defaults:
+  light: ""
+  dark: ""
+
+themes:
+  - name: Paper
+    brightness: light
+    colors:
+      # Main colour
+      primary: "#2F5D8C"
+      on_primary: "#FFFFFF"
+      primary_container: "#DAE0E5"
+      on_primary_container: "#1F1D1A"
+      # Secondary colour
+      secondary: "#5C6B73"
+      on_secondary: "#FFFFFF"
+      secondary_container: "#E2E3E0"
+      on_secondary_container: "#1F1D1A"
+      # Accent colour
+      tertiary: "#8A5A00"
+      on_tertiary: "#FFFFFF"
+      tertiary_container: "#E5D9C1"
+      on_tertiary_container: "#1F1D1A"
+      # Errors and urgent messages
+      error: "#B3261E"
+      on_error: "#FFFFFF"
+      error_container: "#F9DEDC"
+      on_error_container: "#1F1D1A"
+      # Backgrounds and surfaces
+      background: "#F6F4EF"
+      surface: "#FFFDF8"
+      surface_container_lowest: "#FFFEFC"
+      surface_container_low: "#F8F6F1"
+      surface_container: "#F2F0EB"
+      surface_container_high: "#EBE9E4"
+      surface_container_highest: "#E4E2DD"
+      # Text
+      on_surface: "#1F1D1A"
+      on_surface_variant: "#504E4B"
+      # Borders
+      border: "#84827E"
+      border_subtle: "#D7D5D0"
+      # Overlays and effects
+      shadow: "#000000"
+      scrim: "#000000"
+      inverse_surface: "#1F1D1A"
+      on_inverse_surface: "#FFFDF8"
+      inverse_primary: "#97AEC6"
+  - name: Sepia
+    brightness: light
+    colors:
+      # Main colour
+      primary: "#8B5A2B"
+      on_primary: "#FFFFFF"
+      primary_container: "#E6D7BF"
+      on_primary_container: "#3B2F20"
+      # Secondary colour
+      secondary: "#6B5B45"
+      on_secondary: "#FFFFFF"
+      secondary_container: "#E0D7C4"
+      on_secondary_container: "#3B2F20"
+      # Accent colour
+      tertiary: "#7A4E8C"
+      on_tertiary: "#FFFFFF"
+      tertiary_container: "#DECECE"
+      on_tertiary_container: "#3B2F20"
+      # Errors and urgent messages
+      error: "#B3261E"
+      on_error: "#FFFFFF"
+      error_container: "#F9DEDC"
+      on_error_container: "#3B2F20"
+      # Backgrounds and surfaces
+      background: "#F1E7D0"
+      surface: "#FAF2E0"
+      surface_container_lowest: "#FDF9F1"
+      surface_container_low: "#F4ECDA"
+      surface_container: "#EFE6D4"
+      surface_container_high: "#E9E0CF"
+      surface_container_highest: "#E3DBC9"
+      # Text
+      on_surface: "#3B2F20"
+      on_surface_variant: "#655A4A"
+      # Borders
+      border: "#918776"
+      border_subtle: "#D8CFBD"
+      # Overlays and effects
+      shadow: "#000000"
+      scrim: "#000000"
+      inverse_surface: "#3B2F20"
+      on_inverse_surface: "#FAF2E0"
+      inverse_primary: "#C5AC95"
+  - name: Midnight
+    brightness: dark
+    colors:
+      # Main colour
+      primary: "#8AB4F8"
+      on_primary: "#000000"
+      primary_container: "#334564"
+      on_primary_container: "#E6EDF7"
+      # Secondary colour
+      secondary: "#9FB3C8"
+      on_secondary: "#000000"
+      secondary_container: "#394557"
+      on_secondary_container: "#E6EDF7"
+      # Accent colour
+      tertiary: "#F2C879"
+      on_tertiary: "#000000"
+      tertiary_container: "#595244"
+      on_tertiary_container: "#E6EDF7"
+      # Errors and urgent messages
+      error: "#F2B8B5"
+      on_error: "#000000"
+      error_container: "#8C1D18"
+      on_error_container: "#E6EDF7"
+      # Backgrounds and surfaces
+      background: "#0B1220"
+      surface: "#111A2B"
+      surface_container_lowest: "#080C13"
+      surface_container_low: "#172031"
+      surface_container: "#1E2737"
+      surface_container_high: "#242D3D"
+      surface_container_highest: "#2B3343"
+      # Text
+      on_surface: "#E6EDF7"
+      on_surface_variant: "#B7BFCA"
+      # Borders
+      border: "#868E9B"
+      border_subtle: "#374050"
+      # Overlays and effects
+      shadow: "#000000"
+      scrim: "#000000"
+      inverse_surface: "#E6EDF7"
+      on_inverse_surface: "#111A2B"
+      inverse_primary: "#CADDFC"
+  - name: Graphite
+    brightness: dark
+    colors:
+      # Main colour
+      primary: "#FB923C"
+      on_primary: "#000000"
+      primary_container: "#5A3C24"
+      on_primary_container: "#ECECEC"
+      # Secondary colour
+      secondary: "#A8B0B8"
+      on_secondary: "#000000"
+      secondary_container: "#424547"
+      on_secondary_container: "#ECECEC"
+      # Accent colour
+      tertiary: "#7DD3FC"
+      on_tertiary: "#000000"
+      tertiary_container: "#3A5663"
+      on_tertiary_container: "#ECECEC"
+      # Errors and urgent messages
+      error: "#F2B8B5"
+      on_error: "#000000"
+      error_container: "#8C1D18"
+      on_error_container: "#ECECEC"
+      # Backgrounds and surfaces
+      background: "#121212"
+      surface: "#1B1B1B"
+      surface_container_lowest: "#0C0C0C"
+      surface_container_low: "#212121"
+      surface_container: "#282828"
+      surface_container_high: "#2E2E2E"
+      surface_container_highest: "#343434"
+      # Text
+      on_surface: "#ECECEC"
+      on_surface_variant: "#BEBEBE"
+      # Borders
+      border: "#8E8E8E"
+      border_subtle: "#414141"
+      # Overlays and effects
+      shadow: "#000000"
+      scrim: "#000000"
+      inverse_surface: "#ECECEC"
+      on_inverse_surface: "#1B1B1B"
+      inverse_primary: "#FDCEA7"
+  - name: High contrast
+    brightness: dark
+    colors:
+      # Main colour
+      primary: "#FFD60A"
+      on_primary: "#000000"
+      primary_container: "#473C03"
+      on_primary_container: "#FFFFFF"
+      # Secondary colour
+      secondary: "#7DD3FC"
+      on_secondary: "#000000"
+      secondary_container: "#233B47"
+      on_secondary_container: "#FFFFFF"
+      # Accent colour
+      tertiary: "#FF9F0A"
+      on_tertiary: "#000000"
+      tertiary_container: "#523303"
+      on_tertiary_container: "#FFFFFF"
+      # Errors and urgent messages
+      error: "#F2B8B5"
+      on_error: "#000000"
+      error_container: "#8C1D18"
+      on_error_container: "#FFFFFF"
+      # Backgrounds and surfaces
+      background: "#000000"
+      surface: "#000000"
+      surface_container_lowest: "#000000"
+      surface_container_low: "#080808"
+      surface_container: "#0F0F0F"
+      surface_container_high: "#171717"
+      surface_container_highest: "#1F1F1F"
+      # Text
+      on_surface: "#FFFFFF"
+      on_surface_variant: "#C7C7C7"
+      # Borders
+      border: "#FFFFFF"
+      border_subtle: "#2E2E2E"
+      # Overlays and effects
+      shadow: "#000000"
+      scrim: "#000000"
+      inverse_surface: "#FFFFFF"
+      on_inverse_surface: "#000000"
+      inverse_primary: "#FFED91"

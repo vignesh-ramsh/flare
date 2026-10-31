@@ -25,6 +25,7 @@ look:
   symbol: symbol.png                   # one-colour silhouette on a transparent background
   icon_background: "#0F172A"           # fills behind the artwork (adaptive icons, iOS, macOS, Windows, Linux)
   primary_color: "#F97316"             # main colour of the app
+  themes: themes.yaml                  # optional: the themes users can choose in Settings > Appearance
 
 defaults:
   server_url: ""                       # server pre-filled for new users; "" makes them enter one
