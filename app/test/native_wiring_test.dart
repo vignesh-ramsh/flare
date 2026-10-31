@@ -74,6 +74,36 @@ void main() {
       expect(manifest, contains('android:usesCleartextTraffic="true"'));
     });
 
+    test('opens subscribe links, with the scheme from the brand', () {
+      // <scheme>://subscribe/<host>/<topic>; the manifest never spells the scheme itself.
+      expect(
+        manifest,
+        contains(
+          r'<data android:scheme="${urlScheme}" android:host="subscribe"/>',
+        ),
+      );
+      expect(manifest, contains('android.intent.action.VIEW'));
+      expect(manifest, contains('android.intent.category.BROWSABLE'));
+      expect(
+        manifest,
+        contains('flutter_deeplinking_enabled'),
+        reason: 'Flutter hands the link to the router only if asked',
+      );
+    });
+
+    test(
+      'core library desugaring is on, which the notifications plugin requires',
+      () {
+        expect(gradle, contains('isCoreLibraryDesugaringEnabled = true'));
+        expect(
+          gradle,
+          contains(
+            'coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:',
+          ),
+        );
+      },
+    );
+
     test(
       'has no launcher icons of its own, which would clash with the brand\'s',
       () {
@@ -115,6 +145,17 @@ void main() {
       final plist = read('ios/Runner/Info.plist');
       expect(plist, contains('NSAllowsArbitraryLoads'));
       expect(plist, isNot(contains('NSAllowsLocalNetworking')));
+    });
+
+    test('opens subscribe links, with the scheme from Brand.xcconfig', () {
+      final plist = read('ios/Runner/Info.plist');
+      expect(plist, contains('<key>CFBundleURLTypes</key>'));
+      expect(plist, contains(r'<string>$(BRAND_URL_SCHEME)</string>'));
+      expect(plist, contains('<key>FlutterDeepLinkingEnabled</key>'));
+      expect(
+        read('ios/Flutter/Brand.xcconfig'),
+        contains('BRAND_URL_SCHEME = '),
+      );
     });
   });
 

@@ -9,6 +9,10 @@ import '../l10n/app_localizations.dart';
 import 'router.dart';
 import 'theme.dart';
 
+/// Where the app opens. A desktop app started with a subscribe link opens its form; otherwise
+/// the topics.
+final initialLocationProvider = Provider<String>((ref) => '/');
+
 final routerProvider = Provider<GoRouter>((ref) {
   // The first-run pages show while there is no server.
   final firstRun = FirstRunGate();
@@ -17,7 +21,10 @@ final routerProvider = Provider<GoRouter>((ref) {
     (previous, next) => firstRun.update(next.value?.isEmpty ?? false),
     fireImmediately: true,
   );
-  final router = createRouter(firstRun: firstRun);
+  final router = createRouter(
+    initialLocation: ref.read(initialLocationProvider),
+    firstRun: firstRun,
+  );
   ref.onDispose(() {
     router.dispose();
     firstRun.dispose();

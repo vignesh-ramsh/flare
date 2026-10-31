@@ -1,16 +1,18 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../brand/brand.g.dart';
 import '../../l10n/app_localizations.dart';
 import '../../ui/brand_logo.dart';
+import '../../ui/link_opener.dart';
 
 /// Who made this build, and what it is based on. Every build says "Based on ...".
-class AboutScreen extends StatelessWidget {
+class AboutScreen extends ConsumerWidget {
   const AboutScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context);
     final theme = Theme.of(context);
 
@@ -63,7 +65,27 @@ class AboutScreen extends StatelessWidget {
               ),
               const SizedBox(height: 16),
               for (final (label, url) in links)
-                ListTile(title: Text(label), subtitle: Text(url)),
+                ListTile(
+                  title: Text(label),
+                  subtitle: Text(url),
+                  trailing: webLink(url) == null
+                      ? null
+                      : const Icon(Icons.open_in_new),
+                  onTap: webLink(url) == null
+                      ? null
+                      : () async {
+                          final messenger = ScaffoldMessenger.of(context);
+                          final failed = l10n.messageLinkOpenFailed;
+                          final opened = await ref
+                              .read(linkOpenerProvider)
+                              .open(webLink(url)!);
+                          if (!opened) {
+                            messenger.showSnackBar(
+                              SnackBar(content: Text(failed)),
+                            );
+                          }
+                        },
+                ),
             ],
           ),
         ),

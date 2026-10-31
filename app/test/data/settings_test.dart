@@ -225,6 +225,75 @@ PRAGMA user_version = 1;
       expect(events, isEmpty);
     });
 
+    test('say whether they are the user\'s own', () async {
+      await messages.store(
+        const IncomingMessage(
+          serverId: 1,
+          id: 'own',
+          topic: 'alerts',
+          time: 1,
+          mine: true,
+        ),
+      );
+      await pumpEventQueue();
+      expect(events.single.mine, isTrue);
+      expect((await db.select(db.messages).getSingle()).mine, isTrue);
+    });
+
+    test(
+      'are marked as the user\'s when the server\'s copy came first',
+      () async {
+        // The live connection delivers a message before the answer to sending it comes back.
+        expect(
+          await messages.store(
+            const IncomingMessage(
+              serverId: 1,
+              id: 'm',
+              topic: 'alerts',
+              time: 1,
+              body: 'hi',
+            ),
+          ),
+          isTrue,
+        );
+        expect((await db.select(db.messages).getSingle()).mine, isFalse);
+
+        expect(
+          await messages.store(
+            const IncomingMessage(
+              serverId: 1,
+              id: 'm',
+              topic: 'alerts',
+              time: 1,
+              body: 'hi',
+              mine: true,
+            ),
+          ),
+          isFalse,
+        );
+
+        final rows = await db.select(db.messages).get();
+        expect(rows, hasLength(1));
+        expect(rows.single.mine, isTrue);
+      },
+    );
+
+    test('are not unmarked when the server\'s copy arrives after', () async {
+      await messages.store(
+        const IncomingMessage(
+          serverId: 1,
+          id: 'm',
+          topic: 'alerts',
+          time: 1,
+          mine: true,
+        ),
+      );
+      await messages.store(
+        const IncomingMessage(serverId: 1, id: 'm', topic: 'alerts', time: 1),
+      );
+      expect((await db.select(db.messages).getSingle()).mine, isTrue);
+    });
+
     test('say whether they are history', () async {
       await messages.store(
         const IncomingMessage(

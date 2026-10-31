@@ -150,7 +150,7 @@ fails the build if one does.
 
 1. **Skeleton** (done, see below): brand wiring, theme, router, adaptive shell, local database, Topics.
 2. **Connection** (done, see below): one WebSocket per server, catch-up from the cursor, backoff, status. The REST client comes with step 4, when sign-in needs it.
-3. **Thread and Subscribe**: reading and replying, the Subscribe sheet and dialog, deep links.
+3. **Thread and Subscribe** (done, see below): reading and replying, the Subscribe sheet and dialog, deep links.
 4. **First run, Servers, Settings**: sign-in, tokens, the delivery choice.
 5. **Notifications**: the desktop tray and notifications (done, see below), then Android channels and service, the iOS extension, Web Push.
 6. **Inbox and Search**, then polish: accessibility pass, translations, store listings.
@@ -160,8 +160,8 @@ fails the build if one does.
 What exists, so the page and the code agree.
 
 - **Routes built:** `/`, `/topic/:server/:name`, `/add`, `/inbox`, `/settings`, `/settings/servers` and
-  `/settings/about`. The rest of the table (topic info, a single message, search, the other settings pages,
-  the first-run flow and subscribe links) come with the steps that need them. A link straight to `/add`
+  `/settings/about`. The rest of the table (a single message, search, the other settings pages) comes with
+  the steps that need them; the first-run flow, topic info and subscribe links came later (below). A link straight to `/add`
   opens the sheet with nothing under it, and closing it goes to Topics.
 - **Subscribe saves the subscription in the local database.** It checks the server address and the topic
   name; the connection (below) then follows it. The Thread, Inbox and unread counts are driven by what the
@@ -177,8 +177,8 @@ What exists, so the page and the code agree.
   mouse is attached.
 - **Data location:** the database is in the application-support folder, not the user's Documents.
 - **Native projects:** every platform takes its name and identifier from the brand output and allows
-  plain http (decision 6); CI builds each one and checks the result (see [app/README.md](../app/README.md)). The URL scheme is defined for
-  Android but no platform registers it yet; that comes with deep links in step 3. macOS needed the
+  plain http (decision 6); CI builds each one and checks the result (see [app/README.md](../app/README.md)). The URL scheme was defined for
+  Android but no platform registered it yet; deep links (below) do that. macOS needed the
   `network.client` entitlement for the sandboxed app to reach any server, and Android's main manifest
   needed the INTERNET permission, which release builds lacked.
 
@@ -284,3 +284,53 @@ woken by the system's push service instead (not built yet); none of this runs th
   Windows and macOS are built in CI but have not been run, so their toasts, tray and permission prompt are
   unverified; Linux is verified against a real notification daemon.
 
+## As built: thread and Subscribe
+
+- **Replying.** Under every thread is a composer: a text box, a send button, and a button that opens a title
+  and a priority. On a desktop Enter sends and Shift+Enter starts a new line; on a phone Enter is a new line and
+  the button sends. The message goes to the server over REST (`POST /v1/messages`), signed in if the user is.
+  When it fails the text stays where it was and one line says why (not signed in, with a Sign in button; not
+  allowed; too long; cannot reach the server); nothing is lost, and nothing is stored locally for a message the
+  server did not take.
+- **Own messages are bubbles.** The server's copy of a sent message is stored with `mine` set (database schema
+  version 3, with a migration), shown on the right as a bubble that a screen reader announces as "You", while
+  everyone else's stay cards. The live connection delivers the same message again; whichever copy arrives
+  first is stored and the other only marks it as the user's own, so there is never a duplicate. A message the
+  user sent never notifies them.
+- **Subscribe form.** Besides the server and topic fields: a menu of the servers the user already has; a button
+  that makes up a 16-character random name (about 82 bits, from a secure generator, because on an open server the
+  name is the only secret); and a note, looked up from `/v1/config` a moment after the address stops changing,
+  that says what the server is: open (anyone who knows a name can read and send), read-only, or private (sign in
+  to read), or that it cannot be reached and subscribing still works. Pasting a subscribe link, or a topic's
+  web address (`https://host/topic`), into either field fills in both. The lookup also covers the server the form
+  starts with, because a link may name one the user has not seen.
+- **Topic info.** A page (`/topic/:server/:name/info`) on compact, medium and expanded windows, and the details
+  pane on large ones, both showing the same content: the topic, server, message count and notification state;
+  **Share** (the subscribe link, the topic's web address, each with a Copy button, and a QR code of the subscribe
+  link, always dark on white so a camera reads it, checked by decoding the rendered image); and **Unsubscribe**,
+  which asks first, says how many stored messages will be deleted, removes the topic and its messages from this
+  device (nothing on the server) and keeps the server so a sign-in is not lost with its last topic.
+- **Links in messages.** A message's `click` address is a link that opens in the browser, but only `http` and
+  `https`: it is whatever its sender wrote, so any other scheme (`file:`, `tel:`, `intent:`, an app's own) is
+  shown as text and never opened. The About links open the same way.
+- **Subscribe links.** `<urlScheme>://subscribe/<host>/<topic>`, with `?scheme=http` for a server that only
+  speaks http (the scheme is the brand's). They open the Subscribe form, filled in, over whatever the app is
+  showing: the user still presses Subscribe, and a build locked to one server refuses a topic on another. The
+  route is `/subscribe/:host/:topic`, and `/add?server=&topic=` does the same. A link on the first run skips the
+  welcome pages, since it names its server. A second link opened over the form replaces the first.
+- **How a link reaches the app.** Android (an intent filter on the brand's scheme) and iOS (a URL type) hand it
+  to Flutter, which gives it to the router, whose `redirect` maps the scheme to the route. A desktop app started
+  with a link as its argument (`<program> <link>`) opens the form; the Linux `.desktop` file the brand tool writes
+  already declares the scheme with `%u`, so an installed package gets that. Delivery on the desktop is only the
+  command line so far.
+- **Verified:** the composer against the real server (`make app-integration`: a reply is a bubble, exactly one
+  after the live copy arrives, and the server holds it); publishing against the real server for an open and a
+  closed one, a user who may not write, and a message too long; the QR code decoded back to its link; and the real
+  Linux app started with a link, which opened the form with the server and topic filled in and the server's note.
+- **Found by running it:** a second link delivered while the form was open left the first one's values showing
+  (a page keeps the route it first made), and the notification plugin's failure without a D-Bus session bus escaped as
+  an unhandled error (start-up now runs it in a zone that handles it).
+- **Not built:** the link reaching an app that is already running on Windows, macOS and Linux (that needs the
+  system to forward it to the running instance, which is a native change to each runner), registering the scheme on
+  macOS (nothing forwards the link to Dart there yet) and on Windows (the installer's job), universal and app
+  links, scanning a QR code with the camera, and a message's actions.

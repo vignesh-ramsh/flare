@@ -80,7 +80,19 @@ class MessagesRepository {
                     m.id.equals(message.id),
               ))
               .getSingleOrNull();
-      if (known != null) return false;
+      if (known != null) {
+        // The server's copy of a message the user sent can arrive before the answer to
+        // sending it; that answer is what says the message is theirs.
+        if (message.mine && !known.mine) {
+          await (_db.update(_db.messages)..where(
+                (m) =>
+                    m.serverId.equals(message.serverId) &
+                    m.id.equals(message.id),
+              ))
+              .write(const MessagesCompanion(mine: Value(true)));
+        }
+        return false;
+      }
 
       await _db
           .into(_db.messages)
@@ -95,6 +107,7 @@ class MessagesRepository {
               priority: Value(message.priority),
               tags: Value(message.tags),
               click: Value(message.click),
+              mine: Value(message.mine),
             ),
           );
 

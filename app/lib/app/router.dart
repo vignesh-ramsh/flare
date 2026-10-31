@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../brand/brand.g.dart';
 import '../data/models.dart';
+import '../data/subscribe_link.dart';
 import '../features/add/add_screen.dart';
 import '../features/inbox/inbox_screen.dart';
 import '../features/servers/server_modals.dart';
@@ -10,10 +12,13 @@ import '../features/settings/server_detail_screen.dart';
 import '../features/settings/about_screen.dart';
 import '../features/settings/servers_screen.dart';
 import '../features/settings/settings_screen.dart';
+import '../features/thread/topic_info_page.dart';
 import '../features/topics/topics_page.dart';
 import '../features/welcome/welcome_pages.dart';
+import 'deep_link.dart';
 import 'modal_pages.dart';
 import 'shell.dart';
+import 'window_class.dart';
 
 /// The app's routes, the same on every platform (docs/APP-DESIGN.md has the table).
 /// The shell around them is a bottom bar, a rail or a sidebar, by window width.
@@ -24,13 +29,22 @@ GoRouter createRouter({String initialLocation = '/', FirstRunGate? firstRun}) {
     navigatorKey: rootKey,
     initialLocation: initialLocation,
     refreshListenable: firstRun,
-    // Until a server is chosen, the first-run pages are all there is.
-    redirect: firstRun == null
-        ? null
-        : (context, state) =>
-              firstRun.needed && !state.matchedLocation.startsWith('/welcome')
-              ? '/welcome'
-              : null,
+    redirect: (context, state) {
+      // A link from outside, with the app's own scheme: the route for it, or the topics for one
+      // that is not a subscribe link.
+      if (state.uri.scheme == Brand.urlScheme.toLowerCase()) {
+        return routeForLink(state.uri.toString()) ?? '/';
+      }
+      // Until a server is chosen, the first-run pages are all there is. A subscribe link names
+      // its server, so it can be answered at once.
+      if (firstRun != null &&
+          firstRun.needed &&
+          !state.matchedLocation.startsWith('/welcome') &&
+          !state.matchedLocation.startsWith('/subscribe')) {
+        return '/welcome';
+      }
+      return null;
+    },
     routes: [
       ShellRoute(
         builder: (context, state, child) =>
@@ -49,6 +63,21 @@ GoRouter createRouter({String initialLocation = '/', FirstRunGate? firstRun}) {
                   );
                   return TopicsPage(selected: topic);
                 },
+                routes: [
+                  GoRoute(
+                    path: 'info',
+                    builder: (context, state) {
+                      final TopicRef topic = (
+                        host: state.pathParameters['server']!,
+                        name: state.pathParameters['name']!,
+                      );
+                      // The large layout already shows the info beside the thread.
+                      return context.windowClass == WindowClass.large
+                          ? TopicsPage(selected: topic)
+                          : TopicInfoPage(topic: topic);
+                    },
+                  ),
+                ],
               ),
             ],
           ),
@@ -117,8 +146,36 @@ GoRouter createRouter({String initialLocation = '/', FirstRunGate? firstRun}) {
       GoRoute(
         path: '/add',
         parentNavigatorKey: rootKey,
-        pageBuilder: (context, state) =>
-            adaptiveModalPage(context, state, const AddScreen()),
+        pageBuilder: (context, state) => adaptiveModalPage(
+          context,
+          state,
+          AddScreen(
+            server: state.uri.queryParameters['server'],
+            topic: state.uri.queryParameters['topic'],
+          ),
+          // A different link, opened while the form is showing, starts the form again.
+          key: ValueKey(state.uri.toString()),
+        ),
+      ),
+      // A subscribe link or QR code: the form, filled in, for the user to confirm.
+      GoRoute(
+        path: '/subscribe/:host/:topic',
+        parentNavigatorKey: rootKey,
+        pageBuilder: (context, state) {
+          final link = SubscribeLink.parse(
+            '${Brand.urlScheme}://subscribe/'
+            '${Uri.encodeComponent(state.pathParameters['host']!)}/'
+            '${Uri.encodeComponent(state.pathParameters['topic']!)}'
+            '${state.uri.queryParameters['scheme'] == 'http' ? '?scheme=http' : ''}',
+          );
+          return adaptiveModalPage(
+            context,
+            state,
+            // A link that is not valid opens the plain form.
+            AddScreen(server: link?.server.url, topic: link?.topic),
+            key: ValueKey(state.uri.toString()),
+          );
+        },
       ),
     ],
   );

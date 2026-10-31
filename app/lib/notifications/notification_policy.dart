@@ -19,8 +19,8 @@ enum NotificationLevel {
 /// Decides how a newly stored message should be announced. Pure, so every rule is a test.
 ///
 /// In order:
-/// 1. history fetched when a topic was first subscribed to, and everything while notifications
-///    are off or paused, or the topic is muted, stays in the list only;
+/// 1. history fetched when a topic was first subscribed to, the user's own messages, and everything
+///    while notifications are off or paused, or the topic is muted, stays in the list only;
 /// 2. a message below the topic's minimum priority does too, and so does priority 1 (min);
 /// 3. a message the user is already looking at (the window is focused on that thread) needs no
 ///    announcement;
@@ -33,7 +33,8 @@ NotificationLevel decideLevel({
   required DateTime now,
   required bool viewing,
 }) {
-  if (message.silent) return NotificationLevel.none;
+  // History, and the user's own message: nothing to announce about what they just sent.
+  if (message.silent || message.mine) return NotificationLevel.none;
   if (!prefs.enabled || prefs.pausedAt(now)) return NotificationLevel.none;
   if (topic.muted) return NotificationLevel.none;
   if (message.priority < topic.minPriority) return NotificationLevel.none;

@@ -122,6 +122,34 @@ class RealServer {
     }
   }
 
+  /// What the server holds for [topic], oldest first, read as any script would.
+  Future<List<Map<String, dynamic>>> stored(
+    String topic, {
+    String? token,
+  }) async {
+    final client = HttpClient();
+    try {
+      final request = await client.getUrl(
+        url.replace(path: '/$topic/json', queryParameters: {'poll': '1'}),
+      );
+      if (token != null) request.headers.set('Authorization', 'Bearer $token');
+      final response = await request.close();
+      final text = await utf8.decodeStream(response);
+      if (response.statusCode != 200) {
+        throw StateError('reading $topic failed: ${response.statusCode} $text');
+      }
+      return [
+        for (final line in const LineSplitter().convert(text))
+          if (line.trim().isNotEmpty)
+            if (jsonDecode(line) case final Map<String, dynamic> event
+                when event['event'] == 'message')
+              event,
+      ];
+    } finally {
+      client.close(force: true);
+    }
+  }
+
   /// The password every test user is created with.
   static const testPassword = 'a long password for tests';
 

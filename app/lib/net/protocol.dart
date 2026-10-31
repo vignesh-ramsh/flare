@@ -64,19 +64,23 @@ final class MessageFrame extends ServerFrame {
   final List<String> tags;
   final String? click;
 
-  IncomingMessage toIncoming(int serverId, {bool silent = false}) =>
-      IncomingMessage(
-        serverId: serverId,
-        id: id,
-        topic: topic,
-        time: time,
-        title: title,
-        body: body,
-        priority: priority,
-        tags: tags,
-        click: click,
-        silent: silent,
-      );
+  IncomingMessage toIncoming(
+    int serverId, {
+    bool silent = false,
+    bool mine = false,
+  }) => IncomingMessage(
+    serverId: serverId,
+    id: id,
+    topic: topic,
+    time: time,
+    title: title,
+    body: body,
+    priority: priority,
+    tags: tags,
+    click: click,
+    silent: silent,
+    mine: mine,
+  );
 }
 
 /// Something was refused. The connection stays open.

@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../brand/brand.g.dart';
@@ -100,3 +102,6 @@ class ServerFilter extends Notifier<int?> {
 final serverFilterProvider = NotifierProvider<ServerFilter, int?>(
   ServerFilter.new,
 );
+
+/// Where random topic names come from. Secure, because on an open server the name is the secret.
+final randomProvider = Provider<Random>((ref) => Random.secure());

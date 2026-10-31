@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:developer' as developer;
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -50,14 +51,35 @@ Future<void> startServices(ProviderContainer container) async {
 /// without notifications rather than failing to start.
 Future<void> startNotifications(ProviderContainer container) async {
   if (!holdsOwnConnection) return;
-  try {
-    await container.read(notificationSinkProvider).initialize((route) {
+  final started = await _guarded(
+    () => container.read(notificationSinkProvider).initialize((route) {
       container.read(routerProvider).go(route);
       container.read(windowActionsProvider).bringToFront();
-    });
-  } on Object catch (error) {
-    developer.log('notifications unavailable: $error', name: 'notifications');
-    return;
-  }
+    }),
+  );
+  if (!started) return;
   container.read(notificationServiceProvider).start();
+}
+
+/// Runs [start] and says whether it worked. Whatever goes wrong is logged, never thrown.
+///
+/// The platform plugins can fail twice for one cause: once to the caller, and once more from a
+/// listener nobody awaits (the Linux one does when there is no D-Bus session bus). The second
+/// would be an unhandled error, so [start] runs in a zone that handles it.
+Future<bool> _guarded(Future<void> Function() start) {
+  final done = Completer<bool>();
+  void failed(Object error) {
+    developer.log('notifications unavailable: $error', name: 'notifications');
+    if (!done.isCompleted) done.complete(false);
+  }
+
+  runZonedGuarded(() async {
+    try {
+      await start();
+      if (!done.isCompleted) done.complete(true);
+    } on Object catch (error) {
+      failed(error);
+    }
+  }, (error, stack) => failed(error));
+  return done.future;
 }

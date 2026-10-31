@@ -75,6 +75,9 @@ class Messages extends Table {
       .withDefault(const Constant('[]'))();
   TextColumn get click => text().nullable()();
 
+  /// Sent from this app by the user, so the thread shows it as theirs.
+  BoolColumn get mine => boolean().withDefault(const Constant(false))();
+
   @override
   Set<Column<Object>> get primaryKey => {serverId, id};
 }
@@ -94,14 +97,15 @@ class AppSettings extends Table {
 class AppDatabase extends _$AppDatabase {
   AppDatabase(super.e);
 
-  /// 1: servers, topics, messages. 2: the settings table.
+  /// 1: servers, topics, messages. 2: the settings table. 3: which messages are the user's own.
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 3;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
     onUpgrade: (migrator, from, to) async {
       if (from < 2) await migrator.createTable(appSettings);
+      if (from < 3) await migrator.addColumn(messages, messages.mine);
     },
     beforeOpen: (details) async {
       await customStatement('PRAGMA foreign_keys = ON');

@@ -292,4 +292,116 @@ void main() {
       );
     });
   });
+
+  group('publish', () {
+    const stored = {
+      'id': '01933c3e-7a4f-7cc1-9b2e-5f1d6a8e4c21',
+      'time': 1700000000,
+      'event': 'message',
+      'topic': 'alerts',
+      'title': 'Hi',
+      'message': 'hello there',
+      'priority': 4,
+    };
+
+    test(
+      'posts JSON to /v1/messages and returns the message as stored',
+      () async {
+        http.Request? seen;
+        final api = apiFor((request) async {
+          seen = request;
+          return json(200, stored);
+        });
+        final sent = await api.publish(
+          Uri.parse('https://example.com/notify'),
+          topic: 'alerts',
+          message: 'hello there',
+          title: 'Hi',
+          priority: 4,
+        );
+
+        expect(seen!.method, 'POST');
+        expect(seen!.url.toString(), 'https://example.com/notify/v1/messages');
+        expect(jsonDecode(seen!.body), {
+          'topic': 'alerts',
+          'message': 'hello there',
+          'title': 'Hi',
+          'priority': 4,
+        });
+        expect(seen!.headers.containsKey('Authorization'), isFalse);
+        expect(
+          (sent.id, sent.topic, sent.title, sent.body, sent.priority),
+          (
+            '01933c3e-7a4f-7cc1-9b2e-5f1d6a8e4c21',
+            'alerts',
+            'Hi',
+            'hello there',
+            4,
+          ),
+        );
+      },
+    );
+
+    test('leaves out an empty title and the default priority', () async {
+      http.Request? seen;
+      await apiFor((request) async {
+        seen = request;
+        return json(200, stored);
+      }).publish(base, topic: 'alerts', message: 'x', title: '');
+      expect(jsonDecode(seen!.body), {'topic': 'alerts', 'message': 'x'});
+    });
+
+    test('signs the request when signed in', () async {
+      http.Request? seen;
+      await apiFor((request) async {
+        seen = request;
+        return json(200, stored);
+      }).publish(base, topic: 'alerts', message: 'x', token: 'flr_secret');
+      expect(seen!.headers['Authorization'], 'Bearer flr_secret');
+    });
+
+    test('says what went wrong', () async {
+      Future<void> check(http.Response response, ApiFailure failure) =>
+          expectFailure(
+            apiFor((_) async => response)
+                .publish(base, topic: 'alerts', message: 'x'),
+            failure,
+          );
+
+      await check(
+        json(401, {'code': 40101, 'http': 401, 'error': 'log in first'}),
+        ApiFailure.needsSignIn,
+      );
+      await check(
+        json(401, {'code': 40102, 'http': 401, 'error': 'bad token'}),
+        ApiFailure.badCredentials,
+      );
+      await check(
+        json(403, {'code': 40301, 'http': 403, 'error': 'no write access'}),
+        ApiFailure.forbidden,
+      );
+      await check(
+        json(413, {'code': 41301, 'http': 413, 'error': 'too large'}),
+        ApiFailure.tooLarge,
+      );
+      await check(
+        json(429, {'code': 42904, 'http': 429, 'error': 'slow down'}),
+        ApiFailure.throttled,
+      );
+      await check(
+        json(500, {'code': 50001, 'http': 500, 'error': 'oops'}),
+        ApiFailure.server,
+      );
+      await check(http.Response('<html>', 502), ApiFailure.server);
+      await check(json(200, {'ok': true}), ApiFailure.server);
+    });
+
+    test('reports an unreachable server', () async {
+      await expectFailure(
+        apiFor((_) => throw http.ClientException('no route'))
+            .publish(base, topic: 't', message: 'x'),
+        ApiFailure.unreachable,
+      );
+    });
+  });
 }

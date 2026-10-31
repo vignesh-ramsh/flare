@@ -17,6 +17,7 @@ IncomingMessage incoming(
   int priority = 3,
   int? time,
   List<String> tags = const [],
+  String? click,
 }) {
   return IncomingMessage(
     serverId: serverId,
@@ -27,5 +28,6 @@ IncomingMessage incoming(
     body: body,
     priority: priority,
     tags: tags,
+    click: click,
   );
 }

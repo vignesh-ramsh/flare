@@ -72,15 +72,19 @@ others are announced, and that a high-priority one stays until dismissed.
 
 CI (`.github/workflows/app.yml`) builds the app for each platform from a clean checkout and then checks
 the result: the program, bundle or package carries the name and identifier from the brand files. That
-includes the secure-storage plugin sign-in uses, on every platform. The Linux job also runs the whole app
+includes the plugins the app depends on: secure storage for sign-in, local notifications, the system
+tray and window control (the desktop ones), on every platform they support. The Android build turns on
+core library desugaring, which the notifications plugin requires. The Linux job also runs the whole app
 against the real server (`make app-integration`): first run, signing in, subscribing, a live message. That
 runner has no keyring, so it exercises the fallback where a sign-in is kept only until the app closes.
-Nothing has been run on a phone, a simulator, an emulator, a Mac or a Windows PC, so the platforms'
-real keychains and keyrings are untested.
+It then runs `make app-notifications` against a real notification daemon (dunst) on a real D-Bus session,
+so a message becoming a notification is checked on the real platform. Nothing has been run on a phone, a
+simulator, an emulator, a Mac or a Windows PC, so the platforms' real keychains and keyrings, and the
+Windows and macOS toasts, tray icons and permission prompts, are untested.
 
 | | Builds in CI | Named and identified from the brand folder | Run |
 |---|---|---|---|
-| Linux | Yes | Yes: binary name, application ID and window title (`linux/brand.cmake`) | Yes, against the real server, in CI and here |
+| Linux | Yes | Yes: binary name, application ID and window title (`linux/brand.cmake`) | Yes, against the real server and a real notification daemon, in CI and here |
 | Android | Yes (debug APK) | Yes: package name and label checked in the APK | No |
 | iOS | Yes (simulator build) | Yes: bundle ID and display name checked in the app's Info.plist | No |
 | macOS | Yes (debug) | Yes: bundle ID and name checked, and the sandbox's network entitlement | No |
@@ -88,8 +92,10 @@ real keychains and keyrings are untested.
 | Web | The project is not created yet | | |
 
 Not built in CI yet: release builds and signing, the Android `play` and `foss` flavours, and any packaging
-(MSIX, dmg, Flatpak, App Store, Play Store). The URL scheme is defined for Android, but no platform registers
-it yet; that comes with deep links.
+(MSIX, dmg, Flatpak, App Store, Play Store). Subscribe links (`<scheme>://subscribe/<host>/<topic>`) are
+registered on Android and iOS, and a desktop app given one as its argument opens the Subscribe form; the Linux
+`.desktop` file declares the scheme, but handing a link to an app that is already running, and registering it
+on macOS and Windows, are not built.
 
 ## The database
 

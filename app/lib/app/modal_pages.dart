@@ -40,12 +40,17 @@ class DialogPage<T> extends Page<T> {
 }
 
 /// A sheet in compact and medium windows, a dialog in expanded and large ones.
+///
+/// A page keeps the route it first made, so two links to the same kind of page that must not
+/// share one (the Subscribe form for two different topics) pass a [key] that tells them apart.
 Page<void> adaptiveModalPage(
   BuildContext context,
   GoRouterState state,
-  Widget child,
-) {
+  Widget child, {
+  LocalKey? key,
+}) {
+  final pageKey = key ?? state.pageKey;
   return context.windowClass.hasTwoPanes
-      ? DialogPage<void>(key: state.pageKey, child: child)
-      : SheetPage<void>(key: state.pageKey, child: child);
+      ? DialogPage<void>(key: pageKey, child: child)
+      : SheetPage<void>(key: pageKey, child: child);
 }

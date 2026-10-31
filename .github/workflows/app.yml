@@ -119,6 +119,11 @@ jobs:
           echo "$badging" | grep -E "^(package|application-label):"
           echo "$badging" | grep -q "^package: name='$id'"
           echo "$badging" | grep -q "^application-label:'$name'"
+          # Subscribe links: the brand's scheme, registered for <scheme>://subscribe/...
+          scheme=$(sed -n 's/^urlScheme=//p' app/android/brand.properties)
+          manifest=$("$aapt2" dump xmltree --file AndroidManifest.xml app/build/app/outputs/flutter-apk/app-debug.apk)
+          echo "$manifest" | grep -E "android:scheme.*=\"$scheme\""
+          echo "$manifest" | grep -E "android:host.*=\"subscribe\""
 
   macos:
     runs-on: macos-latest
@@ -164,6 +169,9 @@ jobs:
           plist=app/build/ios/iphonesimulator/Runner.app/Info.plist
           test "$(plutil -extract CFBundleIdentifier raw "$plist")" = "$id"
           test "$(plutil -extract CFBundleDisplayName raw "$plist")" = "$name"
+          # Subscribe links: the brand's scheme is registered to the app.
+          scheme=$(sed -n 's/^BRAND_URL_SCHEME = //p' "$xcconfig")
+          test "$(plutil -extract CFBundleURLTypes.0.CFBundleURLSchemes.0 raw "$plist")" = "$scheme"
 
   windows:
     runs-on: windows-latest

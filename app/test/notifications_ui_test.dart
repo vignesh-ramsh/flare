@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:app/app/app.dart';
 import 'package:app/core/db/database.dart';
 import 'package:app/data/models.dart';
@@ -586,6 +588,26 @@ void main() {
       container.dispose();
     });
 
+    test('an error the notification service raises on its own is not left unhandled', () async {
+      final db = memoryDb();
+      addTearDown(db.close);
+      final leaky = _LeakySink();
+      final broken = ProviderContainer(
+        overrides: [
+          databaseProvider.overrideWithValue(db),
+          notificationSinkProvider.overrideWithValue(leaky),
+          connectionManagerProvider.overrideWithValue(
+            SpyManager(TopicsRepository(db)),
+          ),
+        ],
+      );
+      addTearDown(broken.dispose);
+
+      // A test fails on any error nobody handled, so passing is the proof.
+      await startNotifications(broken);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    });
+
     test(
       'does nothing on a phone, which the system\'s push service wakes instead',
       () async {
@@ -620,6 +642,18 @@ class _Window implements WindowActions {
 
   @override
   Future<void> quit() async => calls.add('quit');
+}
+
+/// What the Linux plugin does without a session bus: the failure reaches the caller, and also
+/// comes out of a stream listener where nobody can catch it.
+class _LeakySink extends RecordingSink {
+  @override
+  Future<void> initialize(NotificationTapped onTap) async {
+    unawaited(
+      Future<void>.error(StateError('no D-Bus session bus (listener)')),
+    );
+    throw StateError('no D-Bus session bus');
+  }
 }
 
 class _FailingSink extends RecordingSink {

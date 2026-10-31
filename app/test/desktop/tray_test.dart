@@ -31,6 +31,7 @@ InboxItem item(
     body: body,
     priority: 3,
     tags: const [],
+    mine: false,
   ),
 );
 

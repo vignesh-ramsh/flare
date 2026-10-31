@@ -99,6 +99,19 @@ class TopicsRepository {
     });
   }
 
+  /// Stops following a topic and deletes the messages stored for it on this device. Nothing
+  /// is deleted on the server. The server stays, even with no topics left, so a sign-in is kept.
+  Future<void> unsubscribe(int serverId, String name) {
+    return _db.transaction(() async {
+      await (_db.delete(
+        _db.messages,
+      )..where((m) => m.serverId.equals(serverId) & m.topic.equals(name))).go();
+      await (_db.delete(
+        _db.topics,
+      )..where((t) => t.serverId.equals(serverId) & t.name.equals(name))).go();
+    });
+  }
+
   /// The ID of the newest message received on the topic, or null if none yet.
   Future<String?> cursorOf(int serverId, String name) async {
     final row =

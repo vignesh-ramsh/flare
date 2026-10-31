@@ -89,6 +89,69 @@ void main() {
     });
   });
 
+  group('unsubscribe', () {
+    test('removes the topic and its messages, and nothing else', () async {
+      await topics.subscribe(example, 'alerts');
+      await topics.subscribe(example, 'backups');
+      await topics.subscribe(other, 'alerts');
+      final a = await serverId('example.com');
+      final o = await serverId('other.example:8443');
+      await messages.store(incoming(a, 'alerts', 1));
+      await messages.store(incoming(a, 'alerts', 2));
+      await messages.store(incoming(a, 'backups', 3));
+      await messages.store(incoming(o, 'alerts', 4));
+
+      await topics.unsubscribe(a, 'alerts');
+
+      final left = await topics.watchSummaries().first;
+      expect(
+        left.map((t) => '${t.host}/${t.name}'),
+        unorderedEquals(['example.com/backups', 'other.example:8443/alerts']),
+      );
+      final kept = await db.select(db.messages).get();
+      expect(
+        kept.map((m) => (m.serverId, m.topic)),
+        unorderedEquals([(a, 'backups'), (o, 'alerts')]),
+      );
+    });
+
+    test(
+      'keeps the server, so a sign-in is not lost with the last topic',
+      () async {
+        await topics.subscribe(example, 'alerts');
+        final a = await serverId('example.com');
+
+        await topics.unsubscribe(a, 'alerts');
+
+        expect(await db.select(db.topics).get(), isEmpty);
+        expect(await db.select(db.servers).get(), hasLength(1));
+      },
+    );
+
+    test('can be subscribed to again, from nothing', () async {
+      await topics.subscribe(example, 'alerts');
+      final a = await serverId('example.com');
+      await messages.store(incoming(a, 'alerts', 1));
+      await topics.markRead(a, 'alerts');
+      await topics.unsubscribe(a, 'alerts');
+
+      expect(await topics.subscribe(example, 'alerts'), SubscribeResult.added);
+
+      final again = (await topics.watchSummaries().first).single;
+      expect(again.messageCount, 0);
+      expect(again.unread, 0);
+      expect(await topics.cursorOf(a, 'alerts'), isNull);
+    });
+
+    test('does nothing for a topic that is not there', () async {
+      await topics.subscribe(example, 'alerts');
+      final a = await serverId('example.com');
+      await topics.unsubscribe(a, 'nope');
+      await topics.unsubscribe(999, 'alerts');
+      expect(await db.select(db.topics).get(), hasLength(1));
+    });
+  });
+
   group('store', () {
     late int id;
     setUp(() async {

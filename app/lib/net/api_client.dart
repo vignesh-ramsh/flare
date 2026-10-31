@@ -3,6 +3,8 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import 'protocol.dart';
+
 /// Why a request to a server failed, in the terms a user can act on.
 enum ApiFailure {
   /// No answer: the address is wrong, the server is down, or there is no network.
@@ -19,6 +21,15 @@ enum ApiFailure {
 
   /// The user name or password (or token) was wrong.
   badCredentials,
+
+  /// The server wants a sign-in before it will do this.
+  needsSignIn,
+
+  /// Signed in, but not allowed to do this.
+  forbidden,
+
+  /// The message is bigger than the server accepts.
+  tooLarge,
 
   /// Too many failed sign-ins from this address; try later.
   throttled,
@@ -179,6 +190,41 @@ class ServerApi {
     throw _errorFrom(response, _decode(response.body));
   }
 
+  /// Publishes a message to a topic (`POST /v1/messages`). [token] signs the request in, when the
+  /// user is signed in to the server.
+  Future<MessageFrame> publish(
+    Uri base, {
+    required String topic,
+    required String message,
+    String? title,
+    int? priority,
+    String? token,
+  }) async {
+    final response = await _send(
+      () => _client.post(
+        apiUri(base, '/v1/messages'),
+        headers: {
+          ..._json,
+          'Content-Type': 'application/json',
+          'Authorization': ?(token == null ? null : 'Bearer $token'),
+        },
+        body: jsonEncode({
+          'topic': topic,
+          'message': message,
+          if (title != null && title.isNotEmpty) 'title': title,
+          'priority': ?priority,
+        }),
+      ),
+    );
+    final body = _decode(response.body);
+    // The answer is the message as the server stored it.
+    final stored = response.statusCode == 200
+        ? parseFrame(response.body)
+        : null;
+    if (stored is MessageFrame) return stored;
+    throw _errorFrom(response, body);
+  }
+
   void close() => _client.close();
 
   static const _json = {'Accept': 'application/json'};
@@ -212,10 +258,15 @@ class ServerApi {
     final message = body is Map<String, dynamic> && body['error'] is String
         ? body['error'] as String
         : null;
-    final failure = switch (response.statusCode) {
-      401 => ApiFailure.badCredentials,
-      429 => ApiFailure.throttled,
-      404 => ApiFailure.notSupported,
+    // The code says more than the status: 401 is "log in first" (40101) or "that login is no
+    // good" (40102).
+    final failure = switch ((response.statusCode, code)) {
+      (401, 40101) => ApiFailure.needsSignIn,
+      (401, _) => ApiFailure.badCredentials,
+      (403, _) => ApiFailure.forbidden,
+      (413, _) => ApiFailure.tooLarge,
+      (429, _) => ApiFailure.throttled,
+      (404, _) => ApiFailure.notSupported,
       _ => ApiFailure.server,
     };
     return ApiException(failure, code: code, message: message);

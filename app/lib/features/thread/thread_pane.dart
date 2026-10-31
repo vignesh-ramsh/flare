@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../app/routes.dart';
 import '../../app/window_class.dart';
 import '../../core/db/database.dart';
 import '../../data/models.dart';
@@ -11,6 +12,8 @@ import '../../ui/empty_state.dart';
 import '../../ui/message_card.dart';
 import '../../notifications/viewing.dart';
 import '../topics/connection_banner.dart';
+import 'composer.dart';
+import 'message_bubble.dart';
 import 'topic_notifications_dialog.dart';
 
 /// Whether the large layout shows the details pane beside the thread.
@@ -98,7 +101,13 @@ class ThreadPane extends ConsumerWidget {
           icon: const Icon(Icons.notifications_outlined),
           onPressed: () => TopicNotificationsDialog.show(context, topic),
         ),
-        if (context.windowClass == WindowClass.large)
+        if (context.windowClass != WindowClass.large)
+          IconButton(
+            tooltip: l10n.topicInfoTitle,
+            icon: const Icon(Icons.info_outline),
+            onPressed: () => context.push(topicInfoLocation(host, name)),
+          )
+        else
           IconButton(
             tooltip: detailsVisible ? l10n.hideDetails : l10n.showDetails,
             isSelected: detailsVisible,
@@ -181,6 +190,7 @@ class _ThreadState extends ConsumerState<_Thread> {
             ConnectionBanner(serverId: topic.serverId),
           TopicRefusedBanner(serverId: topic.serverId, topic: topic.name),
           Expanded(child: _messages(context, l10n, messages)),
+          Composer(topic: topic),
         ],
       ),
     );
@@ -211,8 +221,9 @@ class _ThreadState extends ConsumerState<_Thread> {
                 padding: const EdgeInsets.all(16),
                 itemCount: list.length,
                 separatorBuilder: (context, index) => const SizedBox(height: 8),
-                itemBuilder: (context, index) =>
-                    MessageCard(message: list[index]),
+                itemBuilder: (context, index) => list[index].mine
+                    ? MessageBubble(message: list[index])
+                    : MessageCard(message: list[index]),
               ),
             ),
           ),

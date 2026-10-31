@@ -59,6 +59,7 @@ class IncomingMessage {
     this.tags = const [],
     this.click,
     this.silent = false,
+    this.mine = false,
   });
 
   final int serverId;
@@ -76,6 +77,9 @@ class IncomingMessage {
   /// History fetched when a topic was first subscribed to: stored, but not worth a
   /// notification for each message.
   final bool silent;
+
+  /// Sent from this app by the user: shown as theirs, and never announced to them.
+  final bool mine;
 }
 
 /// What a notification needs to know about the topic a message arrived on.

@@ -12,24 +12,29 @@ void main() {
     minPriority: 1,
   );
 
-  IncomingMessage message({int priority = 3, bool silent = false}) =>
-      IncomingMessage(
-        serverId: 1,
-        id: 'm',
-        topic: 'alerts',
-        time: 1,
-        priority: priority,
-        silent: silent,
-      );
+  IncomingMessage message({
+    int priority = 3,
+    bool silent = false,
+    bool mine = false,
+  }) => IncomingMessage(
+    serverId: 1,
+    id: 'm',
+    topic: 'alerts',
+    time: 1,
+    priority: priority,
+    silent: silent,
+    mine: mine,
+  );
 
   NotificationLevel decide({
     int priority = 3,
     bool silent = false,
+    bool mine = false,
     TopicContext context = topic,
     NotificationPrefs prefs = const NotificationPrefs(),
     bool viewing = false,
   }) => decideLevel(
-    message: message(priority: priority, silent: silent),
+    message: message(priority: priority, silent: silent, mine: mine),
     topic: context,
     prefs: prefs,
     now: now,
@@ -62,6 +67,10 @@ void main() {
   group('stays in the list only', () {
     test('for history fetched on a first subscription, even if urgent', () {
       expect(decide(priority: 5, silent: true), NotificationLevel.none);
+    });
+
+    test('for the user\'s own message, even if urgent', () {
+      expect(decide(priority: 5, mine: true), NotificationLevel.none);
     });
 
     test('while notifications are off', () {

@@ -81,4 +81,16 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   running when the window is closed, but only where a tray exists. Verified on Linux against a real
   notification daemon (`make app-notifications`); Windows and macOS build in CI and are not yet run.
 - The brand tool exposes `Brand.windowsIdentity` for Windows toast notifications.
-
+- Replying from the app: a composer under every thread (text, and optionally a title and a priority) that
+  sends over REST and shows the message as the user's own bubble; failures say why and keep the text. Database
+  schema 3 records which messages are the user's own, and they never notify.
+- A better Subscribe form: a menu of known servers, a random topic name, a note about whether the server is
+  open, read-only or private, and filling in both fields from a pasted subscribe link or topic address. A
+  topic's info page (details pane on large windows) shares the subscribe link and a QR code, and can
+  unsubscribe. A message's link opens in the browser, for `http` and `https` only.
+- Subscribe links, `<scheme>://subscribe/<host>/<topic>`, registered on Android and iOS and read from the
+  command line on the desktop, open the Subscribe form filled in. The Android and iOS builds are checked in CI
+  for the registered scheme.
+- Fixed: the notification plugin's failure without a D-Bus session bus was left as an unhandled error; CI
+  failures of the desktop notification commit (the tray plugin's native build in the test job, Android core
+  library desugaring, and the integration target running the dunst test).
