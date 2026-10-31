@@ -1,8 +1,7 @@
 name: Brand tool
 
 # Checks the branding generator and the brand folders, so that rebranding keeps
-# working. Rebuilding the apps with the example brand will join this once the
-# Flutter app exists.
+# working. The app's own checks, and a build with the official brand, are in app.yml.
 
 on:
   push:

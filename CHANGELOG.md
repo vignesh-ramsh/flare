@@ -44,3 +44,10 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   dropped is forgotten by both the relay and the server. There is no official relay yet.
 - CI for the brand tool, tested on the oldest supported Dart (3.9) and the current stable one, and a
   check that app code never hard-codes the project name.
+- The Flutter app, first skeleton (`app/`, [docs/APP-DESIGN.md](docs/APP-DESIGN.md)): Material 3 with the
+  brand colour, one route tree, and a layout that follows the window's width (bottom bar, rail, or a sidebar
+  with a details pane); an on-device database (drift) with subscriptions, messages, cursors and read
+  markers; the topic list, thread, Subscribe, Inbox and Settings screens; English translations with
+  `{appName}` in place of the name. Built and run on Linux, which is also named from the brand files; the
+  other platforms are created but not wired to the brand yet. It does not connect to a server yet. `make
+  app-setup` and `make app-check` set it up and check it, and CI runs them.

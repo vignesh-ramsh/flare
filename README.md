@@ -13,6 +13,9 @@ curl -d "Backup finished" https://flare.example.com/backups
   (`auth.default-access: deny-all`) before exposing it. Push notifications work through Web Push,
   UnifiedPush, FCM and APNs, directly or through a push relay (`flare relay`); rate limits, and an official
   relay for the official apps, are still to come.
+- **Apps:** the Flutter app ([app/README.md](app/README.md)) is started. Its layouts for phones, tablets and
+  desktops, its on-device database and its topic list work, and it runs on Linux; it does not connect to a
+  server yet, so it is not usable for receiving messages.
 - **Rebrand it:** set your own app name, logo, colours and identifiers in one brand folder and rebuild
   the apps. No source changes needed. See [brand/README.md](brand/README.md).
 

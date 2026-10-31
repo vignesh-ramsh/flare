@@ -1,0 +1,57 @@
+name: App
+
+# Checks the Flutter app: formatting, analysis and tests, then builds the Linux desktop app
+# with the official brand. The other platforms are not built here yet; see app/README.md.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "app/**"
+      - "brand/**"
+      - "Makefile"
+      - ".github/workflows/app.yml"
+  pull_request:
+    paths:
+      - "app/**"
+      - "brand/**"
+      - "Makefile"
+      - ".github/workflows/app.yml"
+
+permissions:
+  contents: read
+
+env:
+  # Pinned: Dart's formatter output changes between releases.
+  FLUTTER_VERSION: "3.47.9"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - name: Generate the brand files, translations and database code
+        run: make app-setup
+      - name: Check formatting, analyze and test
+        run: make app-check
+
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the Linux build tools
+        run: sudo apt-get update && sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - name: Generate the brand files, translations and database code
+        run: make app-setup
+      - name: Build
+        run: cd app && flutter build linux --release

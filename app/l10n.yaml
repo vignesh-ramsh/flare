@@ -1,0 +1,6 @@
+# Strings live in l10n/*.arb. The project name is never written in them: use {appName}.
+arb-dir: l10n
+template-arb-file: app_en.arb
+output-dir: lib/l10n
+output-localization-file: app_localizations.dart
+nullable-getter: false

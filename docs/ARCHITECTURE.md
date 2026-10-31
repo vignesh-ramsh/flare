@@ -606,6 +606,9 @@ flowchart TB
   REPO <--> Native
 ```
 
+The screens, the window size classes, the routes and what each platform does are in
+[APP-DESIGN.md](APP-DESIGN.md); the code is in [`app/`](../app/README.md).
+
 - **One codebase** (Dart/Flutter) for the UI and the business logic on all five OSes.
 - **Thin native modules** only where the OS demands it: the Android always-on service and FCM handler
   (Kotlin), the iOS Notification Service Extension and APNs registration (Swift). They share the
@@ -1148,8 +1151,8 @@ rights). This pairs naturally with white-labelling:
 - Licence, `NOTICE`, community files and trademark policy (done).
 - OpenAPI contract, CI pipeline, monorepo layout.
 - Branding generator and the example brand **from day one**: brand-neutral code is cheap to keep but
-  expensive to retrofit (generator, example brand, tests and CI checks are done; wiring the native
-  projects to it comes with the Flutter app).
+  expensive to retrofit (generator, example brand, tests and CI checks are done; the Flutter app reads
+  it in Dart and the Linux project is wired to it; Android, iOS, macOS and Windows are still to be wired).
 
 **Phase 1 — MVP**
 - Server, single node: publish, WebSocket/SSE/JSON/poll subscribe, SQLite cache with catch-up, Docker image
@@ -1158,6 +1161,9 @@ rights). This pairs naturally with white-labelling:
 - CLI: `flare publish`, `flare subscribe` (**done**).
 - Push notifications, server side: device registration, FCM, APNs, Web Push and UnifiedPush, with a durable
   queue and retries (**done**, FCM and APNs only against fakes), and the relay (`flare relay`, **done**).
+- Flutter app skeleton (**done**): adaptive layouts for four window sizes, the on-device database, the
+  topic list, thread and Subscribe screens, built and run on Linux. Still to do: the connection to the
+  server, first run and sign-in, notifications.
 - Android app (FCM + instant-delivery mode) and desktop apps (tray + native notifications).
 
 **Phase 2 — Full platform coverage**
