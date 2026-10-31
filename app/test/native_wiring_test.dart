@@ -32,6 +32,11 @@ void main() {
         ),
       );
       expect(gradle, contains('res.srcDir("src/brand/res")'));
+      expect(
+        gradle,
+        contains('resValues = true'),
+        reason: 'resValue() fails without it',
+      );
     });
 
     test('does not write the ID or the label in the build', () {

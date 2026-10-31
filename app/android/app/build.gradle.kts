@@ -40,6 +40,12 @@ android {
         versionName = flutter.versionName
     }
 
+    // The app's name is generated as a string resource, which the Android Gradle plugin
+    // only allows when asked.
+    buildFeatures {
+        resValues = true
+    }
+
     // The launcher, adaptive and notification icons and the colours `make brand` writes.
     sourceSets {
         getByName("main") {
