@@ -147,6 +147,30 @@ curl -u alice:password -d "hello" https://flare.example.com/alerts-db     # fine
 
 The full contract is in [api/openapi.yaml](../api/openapi.yaml).
 
+## The Admin UI
+
+Open `/admin` on the server (for example `https://flare.example.com/admin`) and sign in with an administrator's
+user name and password (`flare user add --admin alice` makes one). It is a web page built into the server,
+with nothing to install or configure, and it works on a server with no internet.
+
+- **Themes**: add colour themes that every app connecting to this server offers in Settings → Appearance. Pick
+  a colour for each of the 32 colours, or set only the primary and let the rest be worked out; the preview and
+  the readability list update as you go, and a theme whose text could not be read is not saved. Themes can be
+  duplicated, exported to a file and imported.
+- **Settings**: the server's name, accent colour, app link scheme and public address; what anyone may do by
+  default; the largest message and how long messages are kept; and the push switches. A change applies at once
+  unless it says "restart needed". Reset goes back to what the configuration file says. Where the server
+  listens, its database and the push credentials stay in the file.
+- **Users**: add, change role, set a password, disable and enable, delete, and see and revoke each user's tokens.
+  You cannot demote, disable or delete yourself.
+- **Access**: the per-topic access rules, as `flare access` shows them.
+
+The page signs in once and keeps a token (which signing out revokes) rather than your password. It does nothing
+the API doesn't: everything is a call to `/v1/admin/...`, which refuses anyone who is not an administrator. It is
+served with a content security policy that allows nothing but its own files, so a page that holds an access token
+can't be made to load anything else. A topic called `admin` still works: only the page's own files are served
+under `/admin/`.
+
 ## Push notifications
 
 An app that is not running can be woken by the push service of its platform. The server supports four:
@@ -259,6 +283,8 @@ yet, is an **error**, so a typo can never leave something silently unconfigured.
 | `trusted-proxies` | none | Reverse proxies (addresses or CIDR ranges) believed when they say who a client is in `X-Forwarded-For`; used to count failed logins per client |
 | `branding.name`, `.primary-color`, `.app-url-scheme` | Flare, `#F97316`, `flare` | How the server presents itself to apps |
 
+Some of these (`branding.*`, `base-url`, `auth.default-access`, `message-size-limit`, `cache-duration` and the `push.*` switches) can also be changed from the [Admin UI](#the-admin-ui); what is changed there wins over the file until it is reset.
+
 Logs are JSON on stderr (`--log-format text` for people). They record each request's route
 and status, and never topic names, message contents or client addresses.
 
@@ -278,7 +304,7 @@ finish, and exits. Subscribers reconnect and catch up.
 
 | | |
 |---|---|
-| **Works** | Publishing (headers and JSON); subscribing by JSON stream, SSE, WebSocket and poll; catching up with `since`; SQLite storage that survives restarts; expiry; users, passwords, access tokens and per-topic access rules, with the revocation of open connections and a limit on failed logins; push notifications through Web Push, UnifiedPush, FCM and APNs, directly or through a relay (`flare relay`), with a durable queue and retries; health checks; `/v1/config`; graceful shutdown; the `flare publish`, `flare subscribe`, `flare login`, `flare user`, `flare token` and `flare access` commands |
+| **Works** | Publishing (headers and JSON); subscribing by JSON stream, SSE, WebSocket and poll; catching up with `since`; SQLite storage that survives restarts; expiry; users, passwords, access tokens and per-topic access rules, with the revocation of open connections and a limit on failed logins; push notifications through Web Push, UnifiedPush, FCM and APNs, directly or through a relay (`flare relay`), with a durable queue and retries; themes that apps download; settings, users and access managed from the Admin UI; health checks; `/v1/config`; graceful shutdown; the `flare publish`, `flare subscribe`, `flare login`, `flare user`, `flare token` and `flare access` commands |
 | **Not yet** | Rate limits on publishing and other abuse protection (the failed-login limit is the only one). Sign-up by users themselves, changing one's own password, reserving topic names. An official relay for the official apps. Attachments, delayed delivery, action buttons, Markdown. Retracting a message. End-to-end encryption. PostgreSQL and NATS (cluster mode). Prometheus metrics. The web app. Built-in TLS |
 
 Until rate limits exist, **don't expose an open server to the internet**: set
@@ -293,6 +319,9 @@ server's own origin; other clients can open one from anywhere.
 cmd/flare/          the command: serve, relay, publish, subscribe, login, user, token, access
 internal/
   api/              HTTP routes, publish and subscribe handlers, middleware
+  admin/            the Admin UI: HTML, CSS and JavaScript compiled into the binary, and its handler
+  settings/         the settings an administrator may change at runtime, laid over the configuration
+  theme/            colour themes: names, colours, the readability rule and the shared contract
   realtime/         the hub (storing and delivering) and the wire formats: JSON, SSE, WebSocket
   push/             devices, the notification queue and its dispatcher, and the senders (Web Push, UnifiedPush, FCM, APNs, relay)
   relay/            the push relay: handles, wake-ups, rate limits
@@ -313,6 +342,8 @@ migrations/         the database schema, compiled into the binary
 ```bash
 make server-test    # gofmt check, go vet, and all tests with the race detector
 make api-lint       # validate api/openapi.yaml (needs Node.js)
+make admin-test     # the Admin UI's colour maths and theme reader (needs Node.js 22)
+make admin-e2e      # drive the Admin UI in a real browser against the real server (needs Playwright)
 ```
 
 Go 1.25 or newer. CI runs the tests on the minimum Go version (the one in `go.mod`) and on

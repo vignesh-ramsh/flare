@@ -162,6 +162,9 @@ single-node and cluster implementations can be swapped by configuration.
 | **Attachment store** | Stores uploaded files with size quotas and expiry | local disk | S3-compatible (S3, R2, MinIO) |
 | **Scheduler** | Releases delayed messages, purges expired messages and attachments | ticker goroutine | same, with a DB-level lease so only one node runs it |
 | **Push relay** (mode) | Pushes to an app on behalf of servers that don't hold that app's push keys (§5.3) | `flare relay` | `flare relay` |
+| **Settings manager** | Holds the effective configuration: the file, environment and flags, with an administrator's choices from the Admin UI laid over them; applies most of them live (§6.1) | `settings` table | same |
+| **Themes** | The colour themes the server offers its apps (§6.1) | `themes` table | same |
+| **Admin UI** | A web page for themes, settings, users and access, built into the binary and served at `/admin` (§6.1) | embedded files | same |
 
 ### Single-node deployment (default)
 
@@ -427,6 +430,12 @@ server handlers and generated client code.
 | `POST` | `/v1/auth/login` | Log in with a user name and password (Basic auth); returns an access token |
 | `GET` | `/v1/account` | Who the request is logged in as |
 | `GET` / `DELETE` | `/v1/account/tokens`, `/v1/account/tokens/{id}` | List and revoke one's own access tokens |
+| `GET` | `/v1/themes`, `/v1/themes/schema` | The colour themes this server offers (public, with an `ETag`), and the colours a theme may set |
+| `POST` / `PUT` / `DELETE` | `/v1/admin/themes`, `/v1/admin/themes/{name}` | Add, replace and delete themes (administrators) |
+| `GET` / `PUT` / `DELETE` | `/v1/admin/settings`, `/v1/admin/settings/{key}` | List, change and reset the settings an administrator may change at runtime |
+| `GET` / `POST` / `PATCH` / `DELETE` | `/v1/admin/users`, `/v1/admin/users/{name}` | List, create, change (role, password, disabled) and delete users |
+| `GET` / `DELETE` | `/v1/admin/users/{name}/tokens`, `.../{id}` | List and revoke a user's tokens |
+| `GET` / `PUT` / `DELETE` | `/v1/admin/access` | List, set and remove access rules |
 | `PUT` / `DELETE` | `/v1/topics/{topic}` | Reserve a topic, set its ACL |
 | `GET` | `/v1/files/{id}` | Download an attachment |
 | `POST` / `DELETE` | `/v1/handles`, `/v1/handles/{handle}` | Relay mode only (`flare relay`): an app registers its push token and gets a handle and a secret; revokes the handle with the secret |
@@ -435,7 +444,7 @@ server handlers and generated client code.
 
 **Implemented so far:** publishing (`/{topic}`, `/v1/messages`), the three ways to subscribe, `/v1/config`,
 `/healthz` and `/readyz`, accounts (login, access tokens and per-topic access rules, §7), and push
-notifications: device registration, subscriptions and fetching one message (§5). The rest arrive with the features they belong to; the authoritative list of what
+notifications: device registration, subscriptions and fetching one message (§5), and themes, runtime settings, user management and the Admin UI (§6.1). The rest arrive with the features they belong to; the authoritative list of what
 the server serves today is [`api/openapi.yaml`](../api/openapi.yaml), and a test fails if it and the code
 disagree.
 
@@ -477,6 +486,47 @@ Tokens never go in URLs, because URLs end up in proxy and access logs. A token t
 belongs to a deleted user ends the connection within 30 seconds (status 1008). A change to the rules that
 takes away read access to a topic the socket follows ends that subscription, with a `403` error, in the same
 time; the same checks end open `/json` and `/sse` streams.
+
+### 6.1 Themes, runtime settings and the Admin UI
+
+**Themes.** A theme is a unique name (compared without regard to case), light or dark, and up to 32 named
+colours (`primary`, `on_primary`, `surface`, `background`, `border`, `on_surface`, ...). Only `primary` is
+required; the app derives the rest from it, so the smallest theme is a name and one colour. The colours, their
+groups and which text must stay readable on which background are listed once, in
+[`api/theme-tokens.json`](../api/theme-tokens.json), and the app, the brand tool, the server and the Admin UI each
+check their own copy against it. A theme whose explicitly set text has less than 3:1 contrast with its
+background is refused everywhere, because nobody could read the screen to switch it back.
+
+Themes come from two places, and the app offers both in Settings → Appearance:
+
+- **The brand folder** (`brand/themes.yaml`): themes shipped inside a build, validated by `make brand`.
+- **The server** (`themes` table, up to 50): added by administrators at runtime, listed publicly at
+  `GET /v1/themes`. An app downloads them when it starts, when a server is added and when it returns to the
+  foreground, keeps them on the device, and drops one the server no longer offers.
+
+**Runtime settings.** The configuration file stays the base: where the server listens, its database, trusted
+proxies and push credentials are never changed from the web. A short list of settings (the server's name, accent
+colour, app link scheme and public address; the default access; message size and retention; the push switches)
+can be overridden by an administrator. An override is stored in the database (`settings` rows prefixed
+`admin.`), laid over the file, checked together with the whole configuration before it is saved, and removed by
+a reset, which goes back to the file's value. Most settings are read through an atomic pointer on every request
+and apply at once; the push services are built when the server starts, so those are marked "restart needed" and
+the API says when what is running differs from what is set. A stored value that no longer validates (the file
+changed under it) is left out with a warning instead of stopping the server.
+
+**Users.** An administrator can create users, change their role and password, disable and enable them, delete them
+and revoke their tokens. A disabled user is refused everywhere with the same answer as a wrong password, their
+tokens stop working, and open connections end within 30 seconds, but nothing of theirs is deleted. An
+administrator cannot demote, disable or delete themselves.
+
+**The Admin UI.** `/admin` serves a small web page built into the binary: plain HTML, CSS and JavaScript
+modules, with no build step and nothing fetched from elsewhere, so it works on a server with no internet. It
+does nothing the API does not: every action is a call to `/v1/admin/...`, which checks the caller is an
+administrator. The page signs in with `POST /v1/auth/login` and keeps only the token it gets (in
+`sessionStorage`); signing out revokes that token. It is served with a content security policy that allows its
+own scripts and styles and nothing else (no inline script or style, no other origin, no framing), and a test
+fails if the code starts using inline script, event-handler attributes, `innerHTML` or `eval`. Each file has its
+own route rather than one pattern covering everything under `/admin/`, so a topic called `admin` keeps working.
 
 ---
 
@@ -549,7 +599,7 @@ The same schema runs on SQLite and PostgreSQL. Queries are written once in SQL a
 
 | Table | Key columns |
 |---|---|
-| `users` | `id`, `username`, `password_hash`, `role` (`admin`/`user`), `tier_id`, `created_at` |
+| `users` | `id`, `username`, `password_hash`, `role` (`admin`/`user`), `disabled`, `tier_id`, `created_at` |
 | `tokens` | `token_hash` (PK), `user_id`, `label`, `expires_at`, `last_used_at`, `last_ip` |
 | `tiers` | `id`, `name`, `messages_per_day`, `cache_duration`, `attachment_quota`, `reserved_topics` |
 | `topics` | `name` (PK), `owner_user_id`, `reserved`, `e2ee`, `created_at` |
@@ -559,7 +609,8 @@ The same schema runs on SQLite and PostgreSQL. Queries are written once in SQL a
 | `devices` | `id`, `secret_hash`, `user_id` (null = anonymous), `app_id`, `platform`, `provider`, `target` (push token, endpoint or relay handle), `p256dh`, `auth_secret`, `relay_url`, `app_version`, `created_at`, `seen_at`; unique `(provider, relay_url, target)` |
 | `push_subscriptions` | `id` (opaque, sent in notifications), `device_id`, `topic`, `created_at`; unique `(device_id, topic)` |
 | `push_jobs` | `id`, `device_id`, `subscription_id`, `message_id`, `attempts`, `next_attempt_at`, `expires_at` |
-| `settings` | `key`, `value`: the server's own state, such as its Web Push signing key |
+| `settings` | `key`, `value`: the server's own state, such as its Web Push signing key, and (keys starting `admin.`) the choices an administrator made in the Admin UI |
+| `themes` | `name_key` (lower case, PK), `name`, `brightness` (`light`/`dark`), `colors` (JSON), `created_at`, `updated_at` |
 | `devices` | `id`, `secret_hash`, `user_id` (nullable), `app_id`, `platform`, `push_provider`, `push_token` *or* (`relay_url`, `relay_handle`), `app_version`, `last_seen_at` |
 | `push_subscriptions` | `id` (opaque, sent in wake-ups), `device_id`, `topic`, `created_at`; unique `(device_id, topic)` |
 | `push_jobs` | Single-node queue only: `id`, `device_id`, `message_id`, `attempts`, `next_attempt_at` |

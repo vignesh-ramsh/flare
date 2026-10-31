@@ -124,4 +124,12 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   ends within 30 seconds, but nothing of theirs is deleted; enabling them restores everything. An administrator
   cannot demote, disable or delete themselves, so they cannot lock themselves out. `flare user role`, `disable`
   and `enable` do the same from the command line, and `flare user list` shows who is disabled.
+- The Admin UI (`/admin`): a web page built into the server, where an administrator signs in and adds colour
+  themes (a colour picker for each of the 32 colours, a live preview, a check that every text is readable, and
+  import, export, duplicate and delete), changes the runtime settings (each saved on its own, reset to the
+  configuration file's value, with a mark and a banner for changes that wait for a restart), manages users
+  (add, role, password, disable and enable, delete, and see and revoke tokens) and edits access rules. It is plain
+  HTML, CSS and JavaScript with no build step, served under a strict content security policy, and does nothing
+  the `/v1/admin` API does not check. `make admin-test` tests its colour maths and `make admin-e2e` drives it in a
+  real browser against the real server; the server workflow runs both and can now be started by hand.
 
